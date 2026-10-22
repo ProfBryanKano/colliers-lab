@@ -6,7 +6,7 @@ Todos os dados são fictícios.
 
 | Endereço | O que é |
 | --- | --- |
-| `/` | O Hub: módulos, registro completo, feed ao vivo, aprovações, políticas e auditoria |
+| `/` | O Hub: módulos, registro completo, atividade ao vivo, chamadas MCP (pedido e resposta de cada uma), aprovações, políticas e auditoria |
 | `/chat` | Chat do lab, com as mesmas ferramentas e seis agentes prontos |
 | `/mcp` | Endpoint MCP (Streamable HTTP), sem autenticação |
 

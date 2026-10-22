@@ -14,6 +14,7 @@
   <a class="marca" href="#inicio"><b>Colliers</b><span>Hub</span></a>
   <nav aria-label="Atalhos">
     <a href="#aprovacoes">Aprovações<span class="contador" id="nPend"></span></a>
+    <a href="#mcp" class="opcional">Chamadas MCP</a>
     <a href="#conectar" class="opcional">Conectar um agente</a>
     <a href="/chat" target="_blank" class="opcional">Chat do lab</a>
   </nav>
@@ -23,7 +24,7 @@
   <nav class="menu" id="menu" aria-label="Módulos"></nav>
   <main class="palco" id="palco"></main>
   <aside class="atividade" aria-labelledby="t-atividade">
-    <header><h2 id="t-atividade">Atividade ao vivo</h2><p>Cada chamada dos agentes aparece aqui no momento em que acontece.</p></header>
+    <header><h2 id="t-atividade">Atividade ao vivo</h2><p>Cada chamada dos agentes aparece aqui no momento em que acontece.</p><a href="#mcp">Ver pedido e resposta de cada chamada MCP</a></header>
     <ol id="eventos" aria-live="polite"></ol>
   </aside>
 </div>
@@ -96,7 +97,7 @@ function desenharMenu() {
   const item = (r, nome, extra = "") => `<a href="#${r}" ${rota === r || rota.startsWith(r + "/") ? 'aria-current="page"' : ""}>${nome}${extra}</a>`;
   const grupos = {};
   Object.entries(S.entidades).forEach(([k, e]) => (grupos[e.grupo] = grupos[e.grupo] || []).push([k, e]));
-  $("#menu").innerHTML = item("inicio", "Visão geral") +
+  $("#menu").innerHTML = item("inicio", "Visão geral") + item("mcp", "Chamadas MCP") +
     Object.entries(grupos).map(([g, ents]) => `<h4>${esc(g)}</h4>` + ents.map(([k, e]) => item("m/" + k, esc(e.nome), `<span class="qtd">${e.total}</span>`)).join("")).join("") +
     `<h4>Governança</h4>` + item("aprovacoes", "Aprovações", `<span class="qtd ${est.pendentes ? "atencao" : ""}">${est.pendentes || ""}</span>`) +
     item("politicas", "Políticas") + item("auditoria", "Auditoria") + item("conectar", "Conectar um agente");
@@ -120,6 +121,7 @@ async function rotear(forcar) {
       else if (base === "politicas") telaPoliticas();
       else if (base === "auditoria") await telaAuditoria();
       else if (base === "conectar") telaConectar();
+      else if (base === "mcp") await telaMCP();
       else await telaInicio();
     } catch (e) { $("#palco").innerHTML = topo("Erro", "Não foi possível carregar esta página", esc(e.message) + ". Recarregue a página; se continuar, veja os logs do serviço no Render."); }
   }
@@ -290,6 +292,72 @@ function telaConectar() {
       <button class="recusar" id="reiniciar">Reiniciar os dados</button></div></div>`;
 }
 
+/* chamadas MCP: pedido e resposta de cada tools/call */
+let mcpUltimo = 0, mcpPausado = false, mcpNovas = [], mcpFiltro = "", mcpAbertas = new Set();
+const ORIGENS = {"MCP": "Assistente via MCP", "Chat do lab": "Chat do lab", "Painel de aprovação": "Painel"};
+function jsonBonito(v) {
+  const t = esc(JSON.stringify(v, null, 2));
+  return t.replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false|null)\b|(-?\b\d+(?:\.\d+)?\b)/g, (m, str, dois, bool, num) => {
+    if (str) return dois ? `<span class="k">${str}</span>${dois}` : `<span class="s">${str}</span>`;
+    if (bool) return `<span class="b">${bool}</span>`;
+    return `<span class="n">${num}</span>`;
+  });
+}
+const resumoArgs = (a) => Object.entries(a || {}).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join("  ");
+function htmlChamada(c, nova) {
+  const pedido = {jsonrpc: "2.0", id: c.id, method: "tools/call", params: {name: c.ferramenta, arguments: c.argumentos}};
+  const resposta = {jsonrpc: "2.0", id: c.id, result: {content: [{type: "text", text: "(o mesmo conteúdo, como texto)"}], structuredContent: c.resultado, isError: c.situacao === "erro"}};
+  const sit = {ok: ["ok", "Concluída"], pendente: ["espera", "Foi para aprovação"], erro: ["erro", "Recusada"]}[c.situacao] || ["", c.situacao];
+  const quem = (c.cliente && c.origem === "MCP" ? c.cliente : ORIGENS[c.origem] || c.origem);
+  return `<details class="chamada ${nova ? "nova" : ""}" data-chamada="${c.id}" ${mcpAbertas.has(c.id) ? "open" : ""}>
+    <summary><span class="num apagado">${esc(c.quando.slice(11, 19))}</span><span class="so-largo">${esc(quem)}</span><span class="ferr">${esc(c.ferramenta)}</span>
+      <span class="resumo-args so-largo">${esc(resumoArgs(c.argumentos))}</span><span class="st ${sit[0]}">${sit[1]}</span><span class="ms so-largo">${c.duracao_ms} ms</span></summary>
+    <div class="par"><div><h3>Pedido do assistente</h3><p class="apagado">O modelo escolheu a ferramenta e preencheu os argumentos.</p><pre class="json">${jsonBonito(pedido)}</pre></div>
+      <div><h3>Resposta do Hub</h3><p class="apagado">É isto que o modelo lê para decidir o próximo passo.</p><pre class="json">${jsonBonito(resposta)}</pre></div></div></details>`;
+}
+async function telaMCP() {
+  const d = await api("/api/chamadas?limite=80");
+  mcpUltimo = d.ultimo; mcpNovas = [];
+  if (!mcpAbertas.size && d.chamadas[0]) mcpAbertas.add(d.chamadas[0].id);
+  const lista = d.chamadas.filter((c) => !mcpFiltro || c.origem === mcpFiltro);
+  $("#palco").innerHTML = topo("Por dentro / Chamadas MCP", "Chamadas MCP",
+    "Cada vez que um assistente usa o Hub, ele manda um pedido <code>tools/call</code> com a ferramenta e os argumentos que o modelo escolheu, e recebe a resposta que vai ler em seguida. Abra uma chamada para ver as duas mensagens.") +
+    `<div class="corpo"><div class="controles">
+      <div class="filtros" style="margin:0"><button data-mcp-modo="vivo" aria-pressed="${!mcpPausado}">Ao vivo</button><button data-mcp-modo="pausa" aria-pressed="${mcpPausado}">Pausado</button></div>
+      <label class="apagado">Mostrar <select id="mcpFiltro"><option value="">todas as origens</option>${Object.entries(ORIGENS).map(([k, v]) => `<option value="${k}" ${k === mcpFiltro ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <button class="contorno" id="verTools">Ver o que o agente enxerga (tools/list)</button>
+      <span class="apagado" id="mcpAviso"></span></div>
+      <div id="toolsList"></div>
+      <div id="listaMCP">${lista.length ? lista.map((c) => htmlChamada(c)).join("") : `<p class="vazio" id="mcpVazio">Nenhuma chamada ainda. Conecte um assistente ao endereço em <a href="#conectar">Conectar um agente</a> ou use o <a href="/chat" target="_blank">chat do lab</a>; cada chamada aparece aqui na hora.</p>`}</div></div>`;
+}
+async function puxarMCP() {
+  if (vista !== "mcp") return;
+  try {
+    const d = await api(`/api/chamadas?apos=${mcpUltimo}`);
+    if (!d.chamadas.length) return;
+    mcpUltimo = d.ultimo;
+    const novas = d.chamadas.filter((c) => !mcpFiltro || c.origem === mcpFiltro);
+    if (mcpPausado) { mcpNovas = novas.concat(mcpNovas); $("#mcpAviso").textContent = `${mcpNovas.length} chamada(s) nova(s) esperando. Clique em Ao vivo para ver.`; return; }
+    inserirChamadas(novas);
+  } catch (_) {}
+}
+function inserirChamadas(novas) {
+  const alvo = $("#listaMCP"); if (!alvo || !novas.length) return;
+  const vazio = $("#mcpVazio"); if (vazio) vazio.remove();
+  mcpAbertas.clear(); mcpAbertas.add(novas[0].id);
+  alvo.querySelectorAll("details.chamada[open]").forEach((d) => d.removeAttribute("open"));
+  alvo.insertAdjacentHTML("afterbegin", novas.map((c) => htmlChamada(c, true)).join(""));
+  while (alvo.children.length > 120) alvo.lastElementChild.remove();
+}
+async function mostrarTools() {
+  const alvo = $("#toolsList");
+  if (alvo.innerHTML) { alvo.innerHTML = ""; return; }
+  const lista = (await api("/api/mcp/ferramentas")).map((t) => ({...t, description: (t.description || "").replace(/\s+/g, " ").trim()}));
+  alvo.innerHTML = `<div class="painel" style="margin-bottom:24px"><div class="barra-lista"><span><b style="font-weight:600;color:var(--marinho)">Resposta de tools/list</b> <span class="apagado">É assim que o assistente descobre as ${lista.length} ferramentas: nome, descrição, parâmetros e marcas de leitura ou escrita.</span></span></div>` +
+    lista.map((t) => `<details class="ferramenta-def"><summary><span class="ferr" style="font:600 14px ui-monospace,Menlo,monospace;color:var(--marinho)">${esc(t.name)}</span> <span class="apagado">${t.annotations && t.annotations.readOnlyHint ? "somente leitura" : t.annotations && t.annotations.destructiveHint ? "escrita destrutiva" : "escrita"}</span></summary>
+      <p>${esc(t.description)}</p><pre class="json" style="margin:10px 0 4px">${jsonBonito({name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations})}</pre></details>`).join("") + `</div>`;
+}
+
 /* atividade */
 async function puxarAtividade() {
   try {
@@ -317,7 +385,7 @@ async function atualizar() {
     if (mudou) {
       S = await api("/api/schema");
       const ocupado = document.activeElement && document.activeElement.matches("textarea, select, input[type=checkbox]");
-      if (!ocupado) await rotear(true); else desenharMenu();
+      if (!ocupado && vista !== "mcp") await rotear(true); else desenharMenu();
       if (gavetaAberta) { const [ent, id] = gavetaAberta.split("/"); abrirRegistro(ent, id); }
     }
   } catch (_) {}
@@ -339,6 +407,14 @@ document.addEventListener("click", async (ev) => {
   const linha = t.closest("[data-abrir]");
   if (linha && !t.closest("a")) { location.hash = "m/" + linha.dataset.abrir; return; }
   if (t.closest("[data-fechar]") || t.id === "fundo") { fecharRegistro(); return; }
+  const modo = t.closest("[data-mcp-modo]");
+  if (modo) {
+    mcpPausado = modo.dataset.mcpModo === "pausa";
+    document.querySelectorAll("[data-mcp-modo]").forEach((b) => b.setAttribute("aria-pressed", b === modo));
+    if (!mcpPausado && mcpNovas.length) { inserirChamadas(mcpNovas); mcpNovas = []; $("#mcpAviso").textContent = ""; }
+    return;
+  }
+  if (t.id === "verTools") { mostrarTools(); return; }
   const f = t.closest("[data-filtro]");
   if (f) { filtroAprov = f.dataset.filtro; telaAprovacoes(); return; }
   if (t.id === "trocarNome") { const n = prompt("Seu nome, para registrar quem decidiu", lerSessao("aprovador")); if (n && n.trim()) gravarSessao("aprovador", n.trim()); telaAprovacoes(); return; }
@@ -362,8 +438,14 @@ document.addEventListener("click", async (ev) => {
   if (t.id === "copiar") { navigator.clipboard.writeText(est.mcp_url).catch(() => {}); t.textContent = "Copiado"; setTimeout(() => (t.textContent = "Copiar"), 1500); }
 });
 
+document.addEventListener("toggle", (ev) => {
+  const d = ev.target;
+  if (d.dataset && d.dataset.chamada) { const id = Number(d.dataset.chamada); if (d.open) mcpAbertas.add(id); else mcpAbertas.delete(id); }
+}, true);
+
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
+  if (t.id === "mcpFiltro") { mcpFiltro = t.value; telaMCP(); return; }
   if (!t.dataset.pol && !t.dataset.acao && !t.dataset.sens) return;
   if (t.dataset.pol) await comToken("admin", (tk) => api("/api/politicas", {token: tk, entidade: t.dataset.pol, operacao: t.dataset.op, modo: t.value}));
   else if (t.dataset.acao) await comToken("admin", (tk) => api("/api/politicas", {token: tk, acao: t.dataset.acao, modo: t.value}));
@@ -395,6 +477,7 @@ window.addEventListener("hashchange", () => rotear(false));
   await rotear(true);
   puxarAtividade();
   setInterval(atualizar, 3000);
+  setInterval(puxarMCP, 1500);
 })();
 </script>
 </body>

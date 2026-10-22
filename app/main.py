@@ -160,6 +160,25 @@ async def decidir(aid: int, request: Request):
     return _erro(p.decidir, aid, bool(corpo.get("aprovar")), por, (corpo.get("comentario") or "").strip()[:500])
 
 
+@app.get("/api/chamadas")
+def chamadas(apos: int = 0, limite: int = 60):
+    linhas = db.consultar("SELECT * FROM chamadas WHERE id > ? ORDER BY id DESC LIMIT ?", (apos, min(limite, 200)))
+    for c in linhas:
+        for k in ("argumentos", "resultado"):
+            try:
+                c[k] = json.loads(c[k])
+            except (TypeError, ValueError):
+                pass
+    ultimo = db.consultar("SELECT MAX(id) AS m FROM chamadas")[0]["m"] or 0
+    return {"ultimo": ultimo, "chamadas": linhas}
+
+
+@app.get("/api/mcp/ferramentas")
+async def ferramentas_mcp():
+    lista = await mcp.list_tools()
+    return [t.model_dump(by_alias=True, exclude_none=True, mode="json") for t in lista]
+
+
 @app.get("/api/auditoria")
 def auditoria(limite: int = 150):
     return db.consultar("SELECT * FROM auditoria ORDER BY id DESC LIMIT ?", (min(limite, 500),))

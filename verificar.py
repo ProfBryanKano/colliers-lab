@@ -94,6 +94,9 @@ def main():
     texto = json.dumps(res, ensure_ascii=False)
     checar("MCP executa uma leitura", bool(res) and not res.get("isError") and "CTR-001" in texto, "listar contratos")
 
+    st, txt = pedir(base + "/api/chamadas?limite=1")
+    checar("Registro das chamadas MCP", st == 200 and '"ferramenta": "listar"' in txt.replace('":"', '": "'), "página Chamadas MCP")
+
     if token:
         st, txt = pedir(base + "/api/aprovacoes/0", {"token": token, "aprovar": False})
         checar("ADMIN_TOKEN aceito", st != 403, "token incorreto" if st == 403 else "token válido")

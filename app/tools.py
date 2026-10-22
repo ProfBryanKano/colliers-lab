@@ -1,6 +1,6 @@
 """Servidor MCP do Colliers Hub (plataforma simulada).
 
-São 10 ferramentas genéricas que servem para qualquer caso de uso: o agente
+São 9 ferramentas genéricas que servem para qualquer caso de uso: o agente
 descobre os módulos com descrever_plataforma e depois lê, cria, altera e
 exclui registros. O que precisa de aprovação humana é decidido pelo servidor,
 pela política de cada módulo, e não pelo modelo.
@@ -9,6 +9,8 @@ Marcas MCP: leitura = read_only_hint; excluir = destructive_hint. Assistentes
 como Claude e ChatGPT pedem confirmação antes de ferramentas sem read_only.
 """
 
+import json
+import time
 from typing import Any
 
 from mcp.server import MCPServer
@@ -24,7 +26,60 @@ DESTRUTIVA = ToolAnnotations(read_only_hint=False, destructive_hint=True)
 origem = p.origem  # reexportado para o main.py
 LISTA = ", ".join(ENTIDADES)
 
-mcp = MCPServer(
+def _cliente(context) -> str:
+    """Tenta descobrir qual assistente chamou, pelo User-Agent. Só para exibição."""
+    try:
+        ua = (context.headers or {}).get("user-agent", "") if context is not None else ""
+    except Exception:
+        ua = ""
+    u = ua.lower()
+    if "claude" in u or "anthropic" in u:
+        return "Claude"
+    if "openai" in u or "chatgpt" in u:
+        return "ChatGPT"
+    if "copilot" in u or "microsoft" in u:
+        return "Copilot"
+    if "python" in u or "httpx" in u:
+        return "Código (Python)"
+    return ua[:40] or ""
+
+
+def _resultado_legivel(resultado) -> Any:
+    try:
+        estruturado = getattr(resultado, "structured_content", None)
+        if estruturado is not None:
+            return estruturado
+        textos = [getattr(c, "text", "") for c in getattr(resultado, "content", []) or []]
+        texto = "\n".join(t for t in textos if t)
+        try:
+            return json.loads(texto)
+        except ValueError:
+            return texto
+    except Exception:
+        return str(resultado)[:2000]
+
+
+class HubMCP(MCPServer):
+    """MCPServer que guarda cada tools/call (pedido e resposta) para o painel mostrar."""
+
+    async def call_tool(self, name, arguments, context=None):
+        inicio = time.perf_counter()
+        try:
+            resultado = await super().call_tool(name, arguments, context)
+        except Exception as e:
+            db.registrar_chamada("tools/call", name, p.origem.get(), _cliente(context), arguments,
+                                 {"isError": True, "erro": str(e)}, "erro", int((time.perf_counter() - inicio) * 1000))
+            raise
+        legivel = _resultado_legivel(resultado)
+        texto = json.dumps(legivel, ensure_ascii=False)
+        situacao = ("erro" if getattr(resultado, "is_error", False) or texto.startswith('{"erro"') else
+                    "pendente" if '"pendente_aprovacao"' in texto else "ok")
+        db.registrar_chamada("tools/call", name, p.origem.get(), _cliente(context), arguments, legivel, situacao,
+                             int((time.perf_counter() - inicio) * 1000))
+        return resultado
+
+
+mcp = HubMCP(
     "Colliers Hub",
     instructions=(
         "Plataforma simulada da Colliers para laboratório, com dados FICTÍCIOS: CRM, carteira de imóveis e contratos, "

@@ -94,7 +94,7 @@ O endereço do MCP é o do serviço com `/mcp` no fim, por exemplo `https://coll
 - **ChatGPT:** ative o modo desenvolvedor nas configurações e crie um conector com o endereço. Em contas Business e Enterprise, o administrador precisa liberar conectores personalizados antes.
 - **Quem não puder conectar:** usa o chat do lab, em `/chat`, que tem as mesmas ferramentas e seis agentes prontos.
 
-Faça um teste pedindo: "O que esta plataforma tem?". A chamada aparece na atividade ao vivo do Hub.
+Faça um teste pedindo: "O que esta plataforma tem?". A chamada aparece na atividade ao vivo do Hub e, com o pedido e a resposta completos, em **Chamadas MCP**.
 
 ## Na manhã da aula
 

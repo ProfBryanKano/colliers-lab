@@ -17,6 +17,15 @@ Os textos estão em `static/agentes/`, no formato do slide "Modelo de instruçõ
 | Coordenador do dia | 07 e 12 | Caixa de entrada, Chamados, Agenda, Datas críticas | Nenhuma; só cria tarefa depois do "ok" | Elevador parado no shopping, ar-condicionado da sede antes de reunião do conselho, vistoria que precisa de 48 h |
 | Tutor | 01 | Base de conhecimento | Nenhuma (só lê) | Perguntas com resposta na base (desconto, SLA, vistoria) e sem resposta, para ver se ele admite |
 
+## Mostrando o protocolo por dentro
+
+A página **Chamadas MCP** do Hub mostra, ao vivo, cada `tools/call` que chega: a ferramenta, os argumentos que o modelo escolheu e a resposta exata que ele vai ler. É a versão real do slide "A conversa por dentro".
+
+- O botão **Ver o que o agente enxerga (tools/list)** mostra as 9 ferramentas como o assistente as recebe: nome, descrição, parâmetros e as marcas de somente leitura ou destrutiva.
+- **Pausado** congela a lista para você explicar uma chamada com calma; as novas ficam esperando até você voltar para **Ao vivo**.
+- O filtro separa o que veio de assistentes conectados (Claude, ChatGPT, código) do que veio do chat do lab.
+- Boa sequência para projetar: peça "Encaminhe a OPP-004 para o time certo" e mostre, em ordem, o `listar`/`ler` que ele fez, o `atualizar` com `responsavel_id`, a resposta `pendente_aprovacao` e, depois de aprovar no painel, o `consultar_aprovacao`.
+
 ## Roteiro sugerido para o bloco 5 (35 min)
 
 | Tempo | O que fazer | O que mostrar no Hub |

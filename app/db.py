@@ -65,6 +65,7 @@ DROP TABLE IF EXISTS contadores;
 DROP TABLE IF EXISTS aprovacoes;
 DROP TABLE IF EXISTS auditoria;
 DROP TABLE IF EXISTS eventos;
+DROP TABLE IF EXISTS chamadas;
 CREATE TABLE registros (
   entidade TEXT, id TEXT, dados TEXT, criado_em TEXT, criado_por TEXT,
   atualizado_em TEXT, atualizado_por TEXT, PRIMARY KEY (entidade, id)
@@ -82,6 +83,10 @@ CREATE TABLE auditoria (
 CREATE TABLE eventos (
   id INTEGER PRIMARY KEY AUTOINCREMENT, quando TEXT, ferramenta TEXT, tipo TEXT,
   autor TEXT, resumo TEXT, origem TEXT, entidade TEXT, registro_id TEXT
+);
+CREATE TABLE chamadas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, quando TEXT, metodo TEXT, ferramenta TEXT, origem TEXT, cliente TEXT,
+  argumentos TEXT, resultado TEXT, situacao TEXT, duracao_ms INTEGER
 );
 """
 
@@ -229,3 +234,16 @@ def fechar_aprovacao(aid: int, status: str, por: str, comentario: str, resultado
                        (status, agora(), por, comentario, json.dumps(resultado, ensure_ascii=False), aid))
         conn().commit()
         tocar()
+
+
+# ---------------------------------------------------------------- chamadas MCP (para mostrar o protocolo)
+
+
+def registrar_chamada(metodo: str, ferramenta: str, origem: str, cliente: str, argumentos, resultado, situacao: str, duracao_ms: int) -> None:
+    with _lock:
+        conn().execute(
+            "INSERT INTO chamadas (quando, metodo, ferramenta, origem, cliente, argumentos, resultado, situacao, duracao_ms) VALUES (?,?,?,?,?,?,?,?,?)",
+            (agora(), metodo, ferramenta, origem, cliente, json.dumps(argumentos, ensure_ascii=False),
+             json.dumps(resultado, ensure_ascii=False)[:20000], situacao, duracao_ms))
+        conn().execute("DELETE FROM chamadas WHERE id <= (SELECT MAX(id) FROM chamadas) - 500")
+        conn().commit()
