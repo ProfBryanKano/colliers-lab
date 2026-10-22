@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colliers Lab · Painel ao vivo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Platypi:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/estilo.css">
+</head>
+<body>
+<header class="topo">
+  <div class="marca">
+    <h1>Colliers Lab</h1>
+    <p>Ambiente do laboratório de agentes. Todos os dados são fictícios.</p>
+  </div>
+  <div class="conexao">
+    <span>Endereço MCP</span>
+    <code id="mcpUrl">carregando…</code>
+    <button id="copiar" type="button">Copiar</button>
+    <a class="botao-claro" href="/chat">Abrir o chat do lab</a>
+  </div>
+</header>
+
+<main class="grade">
+  <section class="feed" aria-labelledby="t-feed">
+    <div class="feed-cab">
+      <h2 id="t-feed">Ao vivo</h2>
+      <div class="legenda">
+        <span class="tag leitura">leitura</span>
+        <span class="tag escrita">escrita</span>
+        <span class="tag pendente">aguarda aprovação</span>
+        <span class="tag aprovacao">decisão humana</span>
+      </div>
+    </div>
+    <ol id="eventos" class="eventos" aria-live="polite"></ol>
+  </section>
+
+  <section class="dados">
+    <nav class="abas" role="tablist">
+      <button role="tab" data-aba="contratos" aria-selected="true">Contratos</button>
+      <button role="tab" data-aba="alertas">Datas críticas</button>
+      <button role="tab" data-aba="oportunidades">CRM</button>
+      <button role="tab" data-aba="inadimplencia">Inadimplência</button>
+      <button role="tab" data-aba="aprovacoes">Aprovações <span id="nPend" class="contador" hidden></span></button>
+      <button role="tab" data-aba="conectar">Como conectar</button>
+    </nav>
+    <div id="painel" class="painel" role="tabpanel"></div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const brl = (v) => Number(v).toLocaleString("pt-BR", {style: "currency", currency: "BRL", maximumFractionDigits: 0});
+const dataBR = (s) => s ? s.slice(0, 10).split("-").reverse().join("/") : "";
+const diasAte = (s) => Math.round((new Date(s + "T00:00:00") - new Date(new Date().toDateString())) / 86400000);
+
+let dados = null, versao = 0, ultimoEvento = 0, aba = "contratos";
+const nomesTipo = {leitura: "leitura", escrita: "escrita", pendente: "aguarda aprovação", aprovacao: "decisão humana", sistema: "sistema"};
+
+async function puxarFeed() {
+  try {
+    const r = await fetch(`/api/feed?apos=${ultimoEvento}`);
+    const j = await r.json();
+    const lista = $("#eventos");
+    if (j.ultimo && j.ultimo < ultimoEvento) { lista.innerHTML = ""; ultimoEvento = 0; return puxarFeed(); }
+    j.eventos.reverse().forEach((e) => {
+      const li = document.createElement("li");
+      li.className = `evento ${e.tipo}` + (ultimoEvento ? " novo" : "");
+      li.innerHTML = `<time>${esc(e.quando.slice(11, 19))}</time>
+        <div><p class="acao"><span class="tag ${esc(e.tipo)}">${esc(nomesTipo[e.tipo] || e.tipo)}</span> <b>${esc(e.ferramenta)}</b></p>
+        <p>${esc(e.resumo)}</p>
+        <p class="quem">${e.autor ? esc(e.autor) + " · " : ""}${esc(e.origem)}</p></div>`;
+      lista.prepend(li);
+    });
+    while (lista.children.length > 120) lista.lastChild.remove();
+    ultimoEvento = j.ultimo || ultimoEvento;
+  } catch (_) {}
+}
+
+async function puxarDados() {
+  try {
+    const r = await fetch(`/api/dados?versao=${versao}`);
+    const j = await r.json();
+    if (j.inalterado) return;
+    dados = j; versao = j.versao;
+    $("#mcpUrl").textContent = j.mcp_url;
+    const pend = j.encaminhamentos.filter((e) => e.status === "pendente").length + j.cartas.filter((c) => c.status === "rascunho").length;
+    $("#nPend").hidden = !pend; $("#nPend").textContent = pend;
+    desenhar();
+  } catch (_) {}
+}
+
+function tabela(colunas, linhas, vazio) {
+  if (!linhas.length) return `<p class="vazio">${vazio}</p>`;
+  return `<div class="rolagem"><table><thead><tr>${colunas.map((c) => `<th>${c[0]}</th>`).join("")}</tr></thead>
+    <tbody>${linhas.map((l) => `<tr>${colunas.map((c) => `<td>${c[1](l)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+function desenhar() {
+  if (!dados) return;
+  const p = $("#painel");
+  if (aba === "contratos") {
+    p.innerHTML = `<p class="intro">Contratos de locação. O texto completo de cada um só aparece para quem chama <code>ler_contrato</code>.</p>` +
+      tabela([
+        ["Contrato", (c) => `<b>${esc(c.id)}</b>`],
+        ["Cliente e imóvel", (c) => `${esc(c.cliente)}<br><small>${esc(c.imovel)}, ${esc(c.cidade)}</small>`],
+        ["Vencimento", (c) => { const d = diasAte(c.vencimento); return `${dataBR(c.vencimento)}<br><small class="${d < 150 ? "urgente" : ""}">em ${d} dias</small>`; }],
+        ["Aviso prévio", (c) => `${c.aviso_previo_dias} dias`],
+        ["Reajuste", (c) => `${esc(c.indice_reajuste)}, mês ${c.mes_reajuste}`],
+        ["Aluguel", (c) => brl(c.valor_mensal)],
+      ], dados.contratos, "Nenhum contrato.");
+  } else if (aba === "alertas") {
+    p.innerHTML = `<p class="intro">Alertas criados pelos agentes com <code>criar_alerta_data_critica</code>.</p>` +
+      tabela([
+        ["Data", (a) => `<b>${dataBR(a.data)}</b>`], ["Contrato", (a) => esc(a.contrato_id)], ["Tipo", (a) => esc(a.tipo)],
+        ["Descrição", (a) => esc(a.descricao)], ["Criado por", (a) => esc(a.autor)],
+      ], dados.alertas, "Nenhum alerta ainda. Peça a um agente para ler um contrato e criar as datas críticas.");
+  } else if (aba === "oportunidades") {
+    const inter = (id) => dados.interacoes.filter((i) => i.oportunidade_id === id);
+    p.innerHTML = `<p class="intro">Funil de oportunidades. Interações registradas pelos agentes aparecem embaixo de cada uma.</p>` +
+      tabela([
+        ["Oportunidade", (o) => `<b>${esc(o.id)}</b><br>${esc(o.empresa)}`],
+        ["Linha de serviço", (o) => esc(o.linha_servico)], ["Estágio", (o) => `<span class="estagio">${esc(o.estagio)}</span>`],
+        ["Valor estimado", (o) => brl(o.valor_estimado)], ["Responsável", (o) => esc(o.responsavel)],
+        ["Interações", (o) => inter(o.id).map((i) => `<p class="nota"><b>${esc(i.autor)}</b>: ${esc(i.resumo)}${i.proximos_passos ? `<br><small>Próximos passos: ${esc(i.proximos_passos)}</small>` : ""}</p>`).join("") || "<small>nenhuma</small>"],
+      ], dados.oportunidades, "Nenhuma oportunidade.");
+  } else if (aba === "inadimplencia") {
+    p.innerHTML = `<p class="intro">Inquilinos com aluguel em atraso nos empreendimentos administrados.</p>` +
+      tabela([
+        ["Inquilino", (i) => `<b>${esc(i.id)}</b><br>${esc(i.inquilino)}`], ["Empreendimento", (i) => esc(i.empreendimento)],
+        ["Atraso", (i) => `<span class="${i.dias_atraso > 60 ? "urgente" : ""}">${i.dias_atraso} dias</span>`],
+        ["Em aberto", (i) => brl(i.valor_em_aberto)], ["Último contato", (i) => dataBR(i.ultimo_contato)],
+      ], dados.inadimplencia, "Ninguém em atraso.");
+  } else if (aba === "aprovacoes") {
+    const enc = dados.encaminhamentos, cartas = dados.cartas;
+    const botoes = (tipo, id) => `<div class="decisao"><button data-decidir="${tipo}" data-id="${id}" data-aprovar="1">Aprovar</button><button class="secundario" data-decidir="${tipo}" data-id="${id}" data-aprovar="0">Rejeitar</button></div>`;
+    p.innerHTML = `<p class="intro">Escritas que o agente não pode concluir sozinho. Só o instrutor aprova, com o token de instrutor.</p>
+      <h3>Encaminhamentos de oportunidades</h3>` +
+      tabela([
+        ["Pedido", (e) => `<b>${esc(e.oportunidade_id)}</b> para ${esc(e.time_destino)}<br><small>${esc(e.justificativa)}</small>`],
+        ["Pedido por", (e) => esc(e.autor)],
+        ["Situação", (e) => e.status === "pendente" ? botoes("encaminhamento", e.id) : `<span class="status ${esc(e.status)}">${esc(e.status)}</span>`],
+      ], enc, "Nenhum encaminhamento pedido.") +
+      `<h3>Cartas</h3>` +
+      tabela([
+        ["Carta", (c) => `<b>${c.tipo === "cobranca" ? "Cobrança" : "Reajuste"} · ${esc(c.referencia_id)}</b><details><summary>Ler o texto</summary><p class="carta">${esc(c.texto)}</p></details>`],
+        ["Escrita por", (c) => esc(c.autor)],
+        ["Situação", (c) => c.status === "rascunho" ? botoes("carta", c.id) : `<span class="status ${esc(c.status)}">${esc(c.status)}</span>`],
+      ], cartas, "Nenhuma carta em rascunho.");
+  } else if (aba === "conectar") {
+    p.innerHTML = `<div class="conectar">
+      <h3>1. No seu assistente</h3>
+      <p>Adicione um conector personalizado com este endereço, sem autenticação:</p>
+      <p><code class="grande">${esc(dados.mcp_url)}</code></p>
+      <p><b>ChatGPT:</b> ative o modo desenvolvedor e crie um app ou conector com o endereço acima. Em contas corporativas, o administrador precisa liberar antes.</p>
+      <p><b>Claude:</b> em Configurações, Conectores, adicione um conector personalizado com o endereço acima.</p>
+      <p>Se a sua conta não permitir conectores personalizados, use o chat do lab: ele usa exatamente as mesmas ferramentas.</p>
+      <h3>2. Pedidos para testar</h3>
+      <ul><li>Quais contratos vencem nos próximos 150 dias?</li>
+      <li>Leia o contrato C-101 e crie os alertas de renovação e de reajuste.</li>
+      <li>Registre no CRM uma reunião com a Nexo Farma sobre a renovação.</li>
+      <li>Rascunhe a carta de cobrança para o inquilino mais atrasado.</li>
+      <li>Encaminhe a OP-204 para o time certo.</li></ul>
+      <h3>Instrutor</h3>
+      <p><button id="reiniciar" class="secundario" type="button">Reiniciar dados</button> Apaga tudo o que foi escrito e volta ao ponto de partida.</p>
+    </div>`;
+  }
+}
+
+function token() {
+  let t = sessionStorage.getItem("tokenInstrutor");
+  if (!t) { t = prompt("Token de instrutor:"); if (t) sessionStorage.setItem("tokenInstrutor", t); }
+  return t;
+}
+
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("[data-aba]");
+  if (t) {
+    aba = t.dataset.aba;
+    document.querySelectorAll("[data-aba]").forEach((b) => b.setAttribute("aria-selected", b === t));
+    desenhar();
+  }
+  const d = ev.target.closest("[data-decidir]");
+  if (d) {
+    const tk = token(); if (!tk) return;
+    const r = await fetch("/api/decidir", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({tipo: d.dataset.decidir, id: d.dataset.id, aprovar: d.dataset.aprovar === "1", token: tk})});
+    if (r.status === 403) { sessionStorage.removeItem("tokenInstrutor"); alert("Token de instrutor inválido."); }
+    puxarDados(); puxarFeed();
+  }
+  if (ev.target.id === "reiniciar") {
+    if (!confirm("Apagar tudo o que os agentes escreveram?")) return;
+    const tk = token(); if (!tk) return;
+    const r = await fetch("/api/reiniciar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({token: tk})});
+    if (r.status === 403) { sessionStorage.removeItem("tokenInstrutor"); alert("Token de instrutor inválido."); return; }
+    $("#eventos").innerHTML = ""; ultimoEvento = 0; versao = 0; puxarDados(); puxarFeed();
+  }
+  if (ev.target.id === "copiar") {
+    navigator.clipboard.writeText($("#mcpUrl").textContent);
+    ev.target.textContent = "Copiado"; setTimeout(() => (ev.target.textContent = "Copiar"), 1500);
+  }
+});
+
+puxarDados(); puxarFeed();
+setInterval(puxarFeed, 3000);
+setInterval(puxarDados, 5000);
+</script>
+</body>
+</html>

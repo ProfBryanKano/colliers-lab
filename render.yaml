@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: colliers-lab
+    runtime: docker
+    plan: starter
+    healthCheckPath: /saude
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: MCP_PATH
+        value: mcp
+      - key: MODELOS
+        value: openai/gpt-5-mini,google/gemini-2.5-flash,anthropic/claude-haiku-4.5

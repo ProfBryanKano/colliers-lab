@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colliers Lab · Chat do lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Platypi:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/estilo.css">
+<style>
+  .chat-grade { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding: 24px 32px; align-items: start; }
+  @media (max-width: 900px) { .chat-grade { grid-template-columns: 1fr; padding: 16px; } }
+  .config { background: var(--papel); border: 1px solid var(--linha); border-radius: 4px; padding: 20px; display: grid; gap: 14px; position: sticky; top: 16px; }
+  .config label { font-weight: 600; font-size: 14px; display: grid; gap: 6px; }
+  .config input, .config select, .config textarea, .entrada textarea {
+    font: 15px/1.45 var(--texto); color: var(--roxo); border: 1px solid var(--linha); border-radius: 4px; padding: 9px 10px; background: #fff; width: 100%;
+  }
+  .config textarea { min-height: 220px; resize: vertical; }
+  .config .dica { font-size: 13px; color: var(--suave); margin: -6px 0 0; }
+  .conversa { background: var(--papel); border: 1px solid var(--linha); border-radius: 4px; display: flex; flex-direction: column; min-height: 75vh; }
+  .mensagens { flex: 1; padding: 20px 24px; display: grid; gap: 16px; align-content: start; overflow-y: auto; max-height: 68vh; }
+  .msg { max-width: 72ch; }
+  .msg.user { justify-self: end; background: var(--roxo); color: #fff; padding: 10px 14px; border-radius: 4px; }
+  .msg.assistant { background: var(--nevoa); padding: 12px 16px; border-radius: 4px; white-space: pre-wrap; }
+  .msg.erro { background: #fff4f4; border-left: 4px solid #b3261e; padding: 10px 14px; }
+  .passos { border-left: 3px solid var(--linha); padding-left: 12px; display: grid; gap: 6px; }
+  .passos summary { font-weight: 600; font-size: 14px; }
+  .passo { font-size: 14px; }
+  .passo pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid var(--nevoa); padding: 8px; margin: 4px 0 0; max-height: 220px; overflow: auto; font-size: 12px; }
+  .sugestoes { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 12px; }
+  .sugestoes button { background: var(--nevoa); color: var(--roxo); font-weight: 600; font-size: 14px; }
+  .entrada { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--linha); }
+  .entrada textarea { min-height: 48px; resize: vertical; }
+  .pensando { color: var(--suave); font-style: italic; }
+</style>
+</head>
+<body>
+<header class="topo">
+  <div class="marca">
+    <h1>Chat do lab</h1>
+    <p>Um agente com as mesmas ferramentas MCP do painel. Todos os dados são fictícios.</p>
+  </div>
+  <div class="conexao"><a class="botao-claro" href="/" target="_blank">Abrir o painel ao vivo</a></div>
+</header>
+
+<main class="chat-grade">
+  <aside class="config">
+    <label>Nome do grupo
+      <input id="nome" placeholder="Ex.: Grupo 3" maxlength="60">
+    </label>
+    <label>Modelo
+      <select id="modelo"></select>
+    </label>
+    <label>Instruções do agente (opcional)
+      <textarea id="instrucoes" placeholder="Deixe em branco para testar a agência sem prompt específico. Depois, cole aqui as instruções da Parte 1 e compare."></textarea>
+    </label>
+    <p class="dica">As instruções valem a partir da próxima mensagem.</p>
+    <button id="limpar" class="secundario" type="button">Começar nova conversa</button>
+  </aside>
+
+  <section class="conversa" aria-label="Conversa">
+    <div id="mensagens" class="mensagens" aria-live="polite">
+      <p class="intro">Peça algo à operação. A cada resposta, abra “Passos do agente” para ver quais ferramentas ele chamou e o que cada uma devolveu.</p>
+    </div>
+    <div class="sugestoes" id="sugestoes">
+      <button type="button">Quais contratos vencem nos próximos 150 dias?</button>
+      <button type="button">Leia o contrato C-101 e crie os alertas de renovação e reajuste.</button>
+      <button type="button">Rascunhe a carta de cobrança para o inquilino mais atrasado.</button>
+      <button type="button">Quais oportunidades estão sem responsável? Encaminhe para o time certo.</button>
+    </div>
+    <form class="entrada" id="form">
+      <textarea id="texto" placeholder="Escreva um pedido…" aria-label="Mensagem" required></textarea>
+      <button type="submit" id="enviar">Enviar</button>
+    </form>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let historico = [];
+
+["nome", "instrucoes"].forEach((id) => {
+  $("#" + id).value = sessionStorage.getItem(id) || "";
+  $("#" + id).addEventListener("input", (e) => sessionStorage.setItem(id, e.target.value));
+});
+
+fetch("/api/chat/config").then((r) => r.json()).then((c) => {
+  $("#modelo").innerHTML = c.modelos.map((m) => `<option>${esc(m)}</option>`).join("");
+  if (!c.habilitado) adicionar("erro", "O chat está desligado: o servidor ainda não tem a chave OPENROUTER_API_KEY.");
+});
+
+function adicionar(papel, html) {
+  const div = document.createElement("div");
+  div.className = "msg " + papel;
+  div.innerHTML = html;
+  $("#mensagens").append(div);
+  $("#mensagens").scrollTop = $("#mensagens").scrollHeight;
+  return div;
+}
+
+async function enviar(texto) {
+  if (!$("#nome").value.trim()) { $("#nome").focus(); alert("Preencha o nome do grupo: ele aparece como autor no painel."); return; }
+  historico.push({role: "user", content: texto});
+  adicionar("user", esc(texto));
+  const espera = adicionar("pensando", "O agente está trabalhando…");
+  $("#enviar").disabled = true;
+  try {
+    const r = await fetch("/api/chat", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mensagens: historico, nome: $("#nome").value, modelo: $("#modelo").value, instrucoes: $("#instrucoes").value})});
+    const j = await r.json();
+    espera.remove();
+    if (j.erro) { adicionar("erro", esc(j.erro)); historico.pop(); return; }
+    if (j.passos.length) {
+      const itens = j.passos.map((p) => `<div class="passo"><span class="tag ${p.tipo}">${p.tipo}</span> <b>${esc(p.ferramenta)}</b>
+        <pre>${esc(JSON.stringify(p.argumentos, null, 1))}</pre><details><summary>Resultado</summary><pre>${esc(p.resultado)}</pre></details></div>`).join("");
+      adicionar("passos", `<details><summary>Passos do agente (${j.passos.length})</summary>${itens}</details>`);
+    }
+    adicionar("assistant", esc(j.resposta));
+    historico.push({role: "assistant", content: j.resposta});
+  } catch (e) {
+    espera.remove(); adicionar("erro", "Não consegui falar com o servidor. Tente de novo."); historico.pop();
+  } finally {
+    $("#enviar").disabled = false;
+  }
+}
+
+$("#form").addEventListener("submit", (e) => { e.preventDefault(); const t = $("#texto").value.trim(); if (!t) return; $("#texto").value = ""; enviar(t); });
+$("#texto").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#form").requestSubmit(); } });
+$("#sugestoes").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") enviar(e.target.textContent); });
+$("#limpar").addEventListener("click", () => { historico = []; $("#mensagens").innerHTML = ""; });
+</script>
+</body>
+</html>
