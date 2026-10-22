@@ -4,7 +4,7 @@
 
 O Hub faz o papel do "sistema da Colliers". Cada caso de uso da turma vira um **agente**: instruções (prompt fixo) mais as mesmas 9 ferramentas MCP. Trocar de caso é trocar as instruções, não o servidor. O que é sensível o servidor segura na fila de aprovação, e você decide no painel com o token.
 
-## Os seis agentes prontos (chat do lab › Modelo de agente)
+## Os seis agentes prontos (chat do lab, campo Agente)
 
 Os textos estão em `static/agentes/`, no formato do slide "Modelo de instruções" (papel, objetivo, regras, ferramentas, saída e limites). Servem para colar no GPT, Gem, Projeto ou agente do Copilot também.
 

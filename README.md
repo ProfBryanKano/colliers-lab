@@ -7,7 +7,7 @@ Todos os dados são fictícios.
 | Endereço | O que é |
 | --- | --- |
 | `/` | O Hub: módulos, registro completo, feed ao vivo, aprovações, políticas e auditoria |
-| `/chat` | Chat do lab, com as mesmas ferramentas e seis modelos de agente prontos |
+| `/chat` | Chat do lab, com as mesmas ferramentas e seis agentes prontos |
 | `/mcp` | Endpoint MCP (Streamable HTTP), sem autenticação |
 
 ## Módulos (15)
@@ -41,19 +41,9 @@ Cada módulo tem uma política para criar, alterar e excluir. Além disso, algun
 
 Quando uma escrita precisa de aprovação, o agente recebe `pendente_aprovacao` com o número do pedido e nada muda. No painel, a aba **Aprovações** mostra o que vai mudar (antes e depois, o registro a excluir ou o e-mail completo). Aprovar executa exatamente o que foi pedido; rejeitar não muda nada, e o comentário volta para o agente em `consultar_aprovacao`. A aba **Auditoria** registra toda escrita que aconteceu, com autor, origem e número da aprovação.
 
-## Deploy no Render
+## Publicar no Render
 
-1. Suba esta pasta num repositório do GitHub.
-2. No Render: **New › Blueprint** e escolha o repositório. O `render.yaml` cria um serviço Docker no plano Starter, que não dorme.
-3. Variáveis:
-   - `OPENROUTER_API_KEY`: chave só para o chat do lab, com limite de crédito.
-   - `ADMIN_TOKEN`: token do administrador (políticas e reinício; também aprova).
-   - `APROVADOR_TOKEN`: token de quem só aprova. Se ficar vazio, vale o `ADMIN_TOKEN`.
-4. O MCP fica em `https://<seu-servico>.onrender.com/mcp`.
-
-As datas são calculadas a partir do dia em que o serviço sobe (horário de Brasília). Se publicar na véspera, use **Conectar › Reiniciar dados** na manhã da aula. Os dados ficam em disco temporário e voltam ao início a cada reinício do serviço. As políticas voltam ao padrão quando o serviço reinicia.
-
-Variáveis opcionais: `MCP_PATH` (padrão `mcp`), `MODELOS` (modelos do OpenRouter no chat), `CHAT_LIMITE_POR_10MIN` (padrão 40).
+O passo a passo completo, com solução de problemas, está no [TUTORIAL.md](TUTORIAL.md). Em resumo: suba o conteúdo desta pasta na raiz de um repositório do GitHub, crie um **Blueprint** no Render apontando para ele e preencha `ADMIN_TOKEN` e `OPENROUTER_API_KEY`. Depois rode `python verificar.py https://seu-servico.onrender.com SEU_TOKEN` para conferir tudo.
 
 ## Rodar no seu computador
 

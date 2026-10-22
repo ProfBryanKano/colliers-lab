@@ -3,319 +3,305 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Colliers Hub · Plataforma do lab</title>
+<title>Colliers Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/estilo.css">
 </head>
 <body>
-<header class="topo">
-  <div class="marca">
-    <span class="nome">Colliers</span><span class="sep" aria-hidden="true"></span>
-    <span class="produto">Hub · plataforma do lab de agentes<small>Simulação para treinamento. Todos os dados são fictícios.</small></span>
-  </div>
-  <div class="conexao">
-    <span class="rotulo">MCP</span>
-    <code id="mcpUrl">carregando…</code>
-    <button id="copiar" type="button">Copiar</button>
-    <a class="botao no-escuro" href="/chat" target="_blank">Chat do lab</a>
-  </div>
+<header class="cabecalho">
+  <a class="marca" href="#inicio"><b>Colliers</b><span>Hub</span></a>
+  <nav aria-label="Atalhos">
+    <a href="#aprovacoes">Aprovações<span class="contador" id="nPend"></span></a>
+    <a href="#conectar" class="opcional">Conectar um agente</a>
+    <a href="/chat" target="_blank" class="opcional">Chat do lab</a>
+  </nav>
 </header>
-<div class="faixa" aria-hidden="true"></div>
 
-<div class="hub">
-  <nav class="nav cartao" id="nav" aria-label="Módulos"></nav>
-  <main class="conteudo cartao" id="conteudo"></main>
-  <aside class="feed cartao" aria-labelledby="t-feed">
-    <div class="feed-cab">
-      <span class="rotulo">Ao vivo</span>
-      <h2 id="t-feed">O que os agentes fazem</h2>
-      <div class="legenda">
-        <span class="tag leitura">leitura</span><span class="tag escrita">escrita</span>
-        <span class="tag pendente">aguarda aprovação</span><span class="tag aprovacao">decisão humana</span>
-        <span class="tag erro">recusado</span>
-      </div>
-    </div>
-    <ol id="eventos" class="eventos" aria-live="polite"></ol>
+<div class="estrutura">
+  <nav class="menu" id="menu" aria-label="Módulos"></nav>
+  <main class="palco" id="palco"></main>
+  <aside class="atividade" aria-labelledby="t-atividade">
+    <header><h2 id="t-atividade">Atividade ao vivo</h2><p>Cada chamada dos agentes aparece aqui no momento em que acontece.</p></header>
+    <ol id="eventos" aria-live="polite"></ol>
   </aside>
 </div>
 
 <div class="fundo" id="fundo" hidden></div>
-<section class="detalhe" id="detalhe" hidden aria-label="Registro"></section>
+<section class="gaveta" id="gaveta" hidden aria-label="Registro"></section>
 
 <script>
+"use strict";
 const $ = (s) => document.querySelector(s);
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const brl = (v) => Number(v).toLocaleString("pt-BR", {style: "currency", currency: "BRL", maximumFractionDigits: 0});
 const dataBR = (s) => s ? String(s).slice(0, 10).split("-").reverse().join("/") : "";
-const num = (v) => Number(v).toLocaleString("pt-BR");
-const ler = (k) => { try { return sessionStorage.getItem(k) || ""; } catch (_) { return ""; } };
-const guardar = (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} };
+const quando = (s) => s ? `${dataBR(s)} às ${String(s).slice(11, 16)}` : "";
+const lerSessao = (k) => { try { return sessionStorage.getItem(k) || ""; } catch (_) { return ""; } };
+const gravarSessao = (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} };
 
-let S = null, est = {versao: 0}, ultimoEvento = 0, vistaAtual = "", subAprov = "pendente", cacheIds = {};
-const NOMES_TIPO = {leitura: "leitura", escrita: "escrita", pendente: "aguarda aprovação", aprovacao: "decisão humana", sistema: "sistema", erro: "recusado", bloqueado: "bloqueado"};
+let S = null, est = {versao: 0}, ultimoEvento = 0, vista = "", filtroAprov = "pendente", vistos = {}, buscas = {}, gavetaAberta = "";
+
 const OPS = {criar: "Criar", atualizar: "Alterar", excluir: "Excluir", enviar: "Enviar comunicação"};
-const MODO_NOME = {livre: "livre", aprovacao: "com aprovação", bloqueado: "bloqueado"};
-
-const COR = {
-  amarelo: ["Em aberto", "Nova", "Aberto", "Pendente", "Em triagem", "Aguardando aprovação", "Em negociação", "Aguardando fornecedor", "Rascunho", "Alta", "Em renovação", "Em atendimento", "pendente"],
-  vermelho: ["Urgente", "Enviada ao jurídico", "rejeitada", "falhou"],
-  verde: ["Paga", "Concluído", "Concluída", "Enviada", "Ganha", "Vigente", "Respondida", "Encaminhada", "Acordo fechado", "aprovada"],
-  cinza: ["Encerrado", "Perdida", "Cancelada", "Arquivada", "Baixa", "Não classificada", "Não definida"],
+const MODOS = {livre: "Livre", aprovacao: "Requer aprovação", bloqueado: "Bloqueado"};
+const TIPOS = {leitura: "Leitura", escrita: "Escrita", pendente: "Aguarda aprovação", aprovacao: "Decisão humana", sistema: "Sistema", erro: "Recusado", bloqueado: "Bloqueado"};
+const STATUS = {
+  ok: ["Paga", "Concluído", "Concluída", "Enviada", "Ganha", "Vigente", "Respondida", "Encaminhada", "Acordo fechado", "aprovada", "Baixa"],
+  espera: ["Em aberto", "Nova", "Aberto", "Pendente", "Em triagem", "Aguardando aprovação", "Em negociação", "Aguardando fornecedor", "Rascunho", "Em renovação", "Em atendimento", "pendente", "Alta", "Média", "Proposta", "Negociação", "Qualificação"],
+  erro: ["Urgente", "Enviada ao jurídico", "rejeitada", "falhou"],
 };
-const corDe = (v) => Object.keys(COR).find((k) => COR[k].includes(v)) || "";
-
-function fmt(ent, campo, reg) {
-  const d = S.entidades[ent].campos[campo];
-  const v = reg[campo];
-  if (v === null || v === undefined || v === "") return `<span class="suave">—</span>`;
-  if (!d) {  // calculado
-    if (campo === "dias_atraso") return v > 0 ? `<span class="chip ${v > 60 ? "vermelho" : v > 30 ? "amarelo" : ""}">${v} dias</span>` : "0";
-    return esc(v);
-  }
-  if (d.tipo === "moeda") return brl(v);
-  if (d.tipo === "numero") return num(v);
-  if (d.tipo === "data") return dataBR(v);
-  if (d.tipo === "booleano") return v ? "Sim" : "Não";
-  if (d.tipo === "ref") return `${esc(reg[campo + "_nome"] || v)} <span class="id">${esc(v)}</span>`;
-  if (d.tipo === "opcao" && (campo === "status" || campo === "prioridade" || campo === "estagio")) return `<span class="chip ${corDe(v)}">${esc(v)}</span>`;
-  if (d.tipo === "texto_longo") return `<span class="trunc">${esc(v)}</span>`;
-  return esc(v);
-}
+const classeStatus = (v) => Object.keys(STATUS).find((k) => STATUS[k].includes(v)) || "";
 const ROTULOS = {imovel_id: "Imóvel", inicio: "Início", renovacao_automatica: "Renovação automática", indice_reajuste: "Índice de reajuste", numero: "Número",
   descricao: "Descrição", observacoes: "Observações", proximos_passos: "Próximos passos", proximo_passo: "Próximo passo", data_proximo_passo: "Data do próximo passo",
   ultimo_contato: "Último contato", endereco: "Endereço", conteudo: "Conteúdo", area: "Área", titulo: "Título", competencia: "Competência", cnpj: "CNPJ",
   empresa_id: "Empresa", oportunidade_id: "Oportunidade", contrato_id: "Contrato", colaborador_id: "Colaborador", responsavel_id: "Responsável",
   estagio: "Estágio", aberto_em: "Aberto em", recebida_em: "Recebida em", enviada_em: "Enviada em", relacionado_a: "Relacionado a", assinado_em: "Assinado em",
-  dias_atraso: "Atraso", dias_para_vencimento: "Dias para o vencimento", dias_ate: "Dias até", hora: "Hora", corpo: "Texto", para: "Para"};
+  dias_atraso: "Atraso", dias_para_vencimento: "Dias até o vencimento", dias_ate: "Dias até a data", hora: "Hora", corpo: "Texto", para: "Para", nome: "Nome",
+  tipo: "Tipo", status: "Situação", prioridade: "Prioridade", categoria: "Categoria", canal: "Canal", assunto: "Assunto", mensagem: "Mensagem", remetente: "Remetente",
+  cidade: "Cidade", setor: "Setor", cargo: "Cargo", email: "E-mail", telefone: "Telefone", principal: "Contato principal", unidade: "Unidade", resumo: "Resumo",
+  valor: "Valor", vencimento: "Vencimento", data: "Data", origem: "Origem", classe: "Classe", texto: "Texto", solicitante: "Solicitante", fornecedor_id: "Fornecedor"};
 const rotulo = (ent, c) => (S.entidades[ent].campos[c] || {}).rotulo || ROTULOS[c] || c.replace(/_id$/, "").replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase());
+
+function valor(ent, campo, reg, completo) {
+  const def = S.entidades[ent].campos[campo];
+  const v = reg[campo];
+  if (v === null || v === undefined || v === "") return `<span class="apagado">—</span>`;
+  if (!def) {
+    if (campo === "dias_atraso") return v > 0 ? `<span class="st ${v > 60 ? "erro" : "espera"} num">${v} dias</span>` : `<span class="apagado">em dia</span>`;
+    return `<span class="num">${esc(v)}</span>`;
+  }
+  switch (def.tipo) {
+    case "moeda": return `<span class="num">${brl(v)}</span>`;
+    case "numero": return `<span class="num">${Number(v).toLocaleString("pt-BR")}</span>`;
+    case "data": return `<span class="num">${dataBR(v)}</span>`;
+    case "booleano": return v ? "Sim" : "Não";
+    case "ref": return completo ? `<a href="#m/${def.ref}/${esc(v)}">${esc(reg[campo + "_nome"] || v)}</a> <small>${esc(v)}</small>` : `${esc(reg[campo + "_nome"] || v)}`;
+    case "opcao": return ["status", "prioridade", "estagio"].includes(campo) ? `<span class="st ${classeStatus(v)}">${esc(v)}</span>` : esc(v);
+    case "texto_longo": return completo ? `<pre class="documento">${esc(v)}</pre>` : `<span class="duas-linhas">${esc(v)}</span>`;
+    default: return esc(v);
+  }
+}
 
 async function api(url, corpo) {
   const r = await fetch(url, corpo ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpo)} : {});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j.detail || "Erro"), {status: r.status});
+  if (!r.ok) throw Object.assign(new Error(j.detail || "Não foi possível concluir."), {status: r.status});
   return j;
 }
 
-/* ---------------- navegação */
-function desenharNav() {
+/* menu */
+function desenharMenu() {
+  const rota = location.hash.slice(1) || "inicio";
+  const item = (r, nome, extra = "") => `<a href="#${r}" ${rota === r || rota.startsWith(r + "/") ? 'aria-current="page"' : ""}>${nome}${extra}</a>`;
   const grupos = {};
   Object.entries(S.entidades).forEach(([k, e]) => (grupos[e.grupo] = grupos[e.grupo] || []).push([k, e]));
-  const rota = location.hash.slice(1) || "inicio";
-  const link = (r, nome, extra = "") => `<a href="#${r}" ${rota === r || rota.startsWith(r + "/") ? 'aria-current="page"' : ""}>${nome}${extra}</a>`;
-  $("#nav").innerHTML = `<div class="grupo-nav">${link("inicio", "Início")}</div>` +
-    Object.entries(grupos).map(([g, ents]) => `<div class="grupo-nav"><span class="rotulo">${esc(g)}</span>${ents.map(([k, e]) => link("m/" + k, esc(e.nome), `<span class="n">${e.total}</span>`)).join("")}</div>`).join("") +
-    `<div class="grupo-nav"><span class="rotulo">Governança</span>${link("aprovacoes", "Aprovações", est.pendentes ? `<span class="badge">${est.pendentes}</span>` : "")}${link("governanca", "Políticas")}${link("auditoria", "Auditoria")}${link("conectar", "Conectar")}</div>`;
+  $("#menu").innerHTML = item("inicio", "Visão geral") +
+    Object.entries(grupos).map(([g, ents]) => `<h4>${esc(g)}</h4>` + ents.map(([k, e]) => item("m/" + k, esc(e.nome), `<span class="qtd">${e.total}</span>`)).join("")).join("") +
+    `<h4>Governança</h4>` + item("aprovacoes", "Aprovações", `<span class="qtd ${est.pendentes ? "atencao" : ""}">${est.pendentes || ""}</span>`) +
+    item("politicas", "Políticas") + item("auditoria", "Auditoria") + item("conectar", "Conectar um agente");
+  $("#nPend").textContent = est.pendentes || "";
+}
+
+function topo(trilha, titulo, desc, extra = "") {
+  return `<div class="topo-pagina"><div class="trilha">${trilha}</div><h1>${esc(titulo)}</h1>${desc ? `<p class="desc">${desc}</p>` : ""}${extra}</div>`;
 }
 
 async function rotear(forcar) {
   const rota = location.hash.slice(1) || "inicio";
   const [base, ent, id] = rota.split("/");
   const chave = base === "m" ? "m/" + ent : base;
-  desenharNav();
-  if (chave !== vistaAtual || forcar) {
-    vistaAtual = chave;
-    if (base === "m" && S.entidades[ent]) await vistaModulo(ent, forcar);
-    else if (base === "aprovacoes") await vistaAprovacoes();
-    else if (base === "governanca") vistaGovernanca();
-    else if (base === "auditoria") await vistaAuditoria();
-    else if (base === "conectar") vistaConectar();
-    else await vistaInicio();
+  desenharMenu();
+  if (chave !== vista || forcar) {
+    vista = chave;
+    try {
+      if (base === "m" && S.entidades[ent]) await telaModulo(ent);
+      else if (base === "aprovacoes") await telaAprovacoes();
+      else if (base === "politicas") telaPoliticas();
+      else if (base === "auditoria") await telaAuditoria();
+      else if (base === "conectar") telaConectar();
+      else await telaInicio();
+    } catch (e) { $("#palco").innerHTML = topo("Erro", "Não foi possível carregar esta página", esc(e.message) + ". Recarregue a página; se continuar, veja os logs do serviço no Render."); }
   }
-  if (base === "m" && id) abrirDetalhe(ent, id); else fecharDetalhe(false);
+  if (base === "m" && id) abrirRegistro(ent, id); else fecharRegistro(false);
 }
 
-/* ---------------- início */
-async function vistaInicio() {
-  const [dem, chm, cob, ctr, apr] = await Promise.all([
-    api("/api/registros/demandas"), api("/api/registros/chamados"), api("/api/registros/cobrancas"), api("/api/registros/contratos"), api("/api/aprovacoes?status=pendente"),
-  ]);
+/* visão geral */
+async function telaInicio() {
+  const [dem, chm, cob, ctr, apr] = await Promise.all(["demandas", "chamados", "cobrancas", "contratos"].map((e) => api("/api/registros/" + e)).concat(api("/api/aprovacoes?status=pendente")));
   const novas = dem.registros.filter((d) => d.status === "Nova").length;
-  const chUrg = chm.registros.filter((c) => c.status !== "Concluído" && ["Urgente", "Alta"].includes(c.prioridade)).length;
-  const atr = cob.registros.filter((c) => c.dias_atraso > 0);
+  const criticos = chm.registros.filter((c) => c.status !== "Concluído" && ["Urgente", "Alta"].includes(c.prioridade)).length;
+  const atraso = cob.registros.filter((c) => c.dias_atraso > 0);
   const vencendo = ctr.registros.filter((c) => c.status !== "Encerrado" && c.dias_para_vencimento >= 0 && c.dias_para_vencimento <= 180).length;
-  $("#conteudo").innerHTML = `<span class="rotulo">Visão geral · ${dataBR(est.hoje)}</span><h1>Colliers Hub</h1>
-    <p class="suave" style="max-width:72ch;margin:6px 0 0">Uma plataforma simulada com CRM, carteira de imóveis e contratos, cobrança, manutenção, caixa de entrada, agenda e base de conhecimento. Os agentes leem, criam, alteram e excluem registros pelo MCP; o que é sensível para na fila de aprovação.</p>
-    <div class="kpis">
-      <a href="#aprovacoes" class="${apr.length ? "alerta" : ""}"><span class="rotulo">Aguardando aprovação</span><span class="kpi">${apr.length}</span><small>pedidos dos agentes</small></a>
-      <a href="#m/demandas"><span class="rotulo">Caixa de entrada</span><span class="kpi">${novas}</span><small>demandas novas sem triagem</small></a>
-      <a href="#m/chamados" class="${chUrg ? "alerta" : ""}"><span class="rotulo">Chamados</span><span class="kpi">${chUrg}</span><small>urgentes ou altos em aberto</small></a>
-      <a href="#m/cobrancas"><span class="rotulo">Inadimplência</span><span class="kpi">${brl(atr.reduce((s, c) => s + c.valor, 0))}</span><small>${atr.length} cobranças em atraso</small></a>
-      <a href="#m/contratos"><span class="rotulo">Contratos</span><span class="kpi">${vencendo}</span><small>vencem em até 180 dias (cadastro)</small></a>
+  $("#palco").innerHTML = `<section class="faixa-marinho"><h1>A operação imobiliária onde os agentes trabalham.</h1>
+      <p>CRM, carteira de contratos, cobrança, manutenção e caixa de entrada num só lugar, com dados fictícios. Os agentes consultam e alteram tudo pelo MCP; o que é sensível espera uma pessoa aprovar.</p></section>
+    <div class="indicadores">
+      <a href="#aprovacoes"><strong class="${apr.length ? "alerta" : ""}">${apr.length}</strong><span>pedidos esperando aprovação</span></a>
+      <a href="#m/demandas"><strong>${novas}</strong><span>demandas novas na caixa de entrada</span></a>
+      <a href="#m/chamados"><strong class="${criticos ? "alerta" : ""}">${criticos}</strong><span>chamados urgentes ou altos em aberto</span></a>
+      <a href="#m/cobrancas"><strong>${brl(atraso.reduce((s, c) => s + c.valor, 0))}</strong><span>em aluguéis atrasados (${atraso.length} cobranças)</span></a>
+      <a href="#m/contratos"><strong>${vencendo}</strong><span>contratos vencendo em 180 dias, pelo cadastro</span></a>
     </div>
-    <h2>Como a plataforma decide</h2>
-    <div class="passos-hub">
-      <div><b>Livre</b>O agente faz e a mudança aparece na hora. Ex.: registrar uma interação, criar um alerta, triar uma demanda.</div>
-      <div><b>Com aprovação</b>O pedido vai para a fila e nada muda até um humano aprovar com o token. Ex.: enviar e-mail, encaminhar oportunidade, alterar contrato.</div>
-      <div><b>Bloqueado</b>O servidor recusa, não importa o que o modelo peça. Ex.: excluir contrato, alterar colaboradores.</div>
-      <div><b>Campo sensível</b>Mesmo num módulo livre, mudar certos campos pede aprovação. Ex.: responsável da oportunidade, valor da cobrança.</div>
-    </div>`;
+    <div class="corpo"><h2 style="margin-bottom:14px">Quem decide cada escrita</h2>
+      <div class="modos">
+        <div><h3>Livre</h3><p>O agente faz e a mudança aparece na hora. Por exemplo, registrar uma reunião ou triar uma demanda.</p></div>
+        <div><h3>Requer aprovação</h3><p>O pedido vai para a fila e nada muda até alguém aprovar com o token. Por exemplo, enviar um e-mail ou alterar um contrato.</p></div>
+        <div><h3>Bloqueado</h3><p>O servidor recusa, diga o prompt o que disser. Por exemplo, excluir um contrato.</p></div>
+        <div><h3>Campo sensível</h3><p>Num módulo livre, alguns campos ainda pedem aprovação, como o responsável de uma oportunidade.</p></div>
+      </div>
+      <p class="apagado" style="margin-top:16px">As regras de cada módulo ficam em <a href="#politicas">Políticas</a> e podem mudar durante a aula.</p></div>`;
 }
 
-/* ---------------- módulo */
-let buscaModulo = {};
-async function vistaModulo(ent, manterBusca) {
+/* módulo */
+async function telaModulo(ent) {
   const e = S.entidades[ent];
-  const busca = buscaModulo[ent] || "";
-  const dados = await api(`/api/registros/${ent}` + (busca ? `?busca=${encodeURIComponent(busca)}` : ""));
-  const antes = cacheIds[ent] || {};
-  const agora = {};
-  dados.registros.forEach((r) => (agora[r.id] = r.atualizado_em));
-  const pol = (op) => `<span class="pol ${e.politica[op]}">${OPS[op]}: <b>${MODO_NOME[e.politica[op]]}</b></span>`;
-  const sens = e.sensiveis.length ? `<span class="pol aprovacao">Sensíveis: <b>${e.sensiveis.join(", ")}</b></span>` : "";
-  const cols = [...e.colunas];
-  if (e.virtuais.includes("dias_atraso")) cols.push("dias_atraso");
-  const focoBusca = document.activeElement && document.activeElement.id === "buscaMod";
-  $("#conteudo").innerHTML = `<div class="cab-modulo"><div><span class="rotulo">${esc(e.grupo)}</span><h1>${esc(e.nome)}</h1><p>${esc(e.descricao)}</p>
-      <div class="politica">${pol("criar")}${pol("atualizar")}${pol("excluir")}${sens}</div></div>
-      <div class="busca-lista"><input id="buscaMod" type="search" placeholder="Buscar em ${esc(e.nome.toLowerCase())}" value="${esc(busca)}" aria-label="Buscar"></div></div>` +
-    (dados.registros.length ? `<div class="rolagem"><table><thead><tr><th>Id</th>${cols.map((c) => `<th>${esc(rotulo(ent, c))}</th>`).join("")}</tr></thead><tbody>
-      ${dados.registros.map((r) => `<tr class="clicavel ${cacheIds[ent] && antes[r.id] !== r.atualizado_em ? "mudou" : ""}" data-abrir="${ent}/${r.id}"><td><span class="id">${esc(r.id)}</span></td>${cols.map((c) => `<td>${fmt(ent, c, r)}</td>`).join("")}</tr>`).join("")}
-      </tbody></table></div><p class="suave" style="margin-top:10px">${dados.total} registro(s). Clique numa linha para ver tudo.</p>`
-      : `<p class="vazio">Nenhum registro${busca ? " com essa busca" : ""}.</p>`);
-  cacheIds[ent] = agora;
-  if (focoBusca) { const i = $("#buscaMod"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  const busca = buscas[ent] || "";
+  const d = await api(`/api/registros/${ent}` + (busca ? `?busca=${encodeURIComponent(busca)}` : ""));
+  const antes = vistos[ent], agora = {};
+  d.registros.forEach((r) => (agora[r.id] = r.atualizado_em));
+  const cols = [...e.colunas, ...(e.virtuais.includes("dias_atraso") ? ["dias_atraso"] : [])];
+  const regras = `<div class="regras"><span>Criar: <b>${MODOS[e.politica.criar]}</b></span><span>Alterar: <b>${MODOS[e.politica.atualizar]}</b></span><span>Excluir: <b>${MODOS[e.politica.excluir]}</b></span>${e.sensiveis.length ? `<span>Campos sensíveis: <b>${e.sensiveis.map((c) => esc(rotulo(ent, c))).join(", ")}</b></span>` : ""}</div>`;
+  const focado = document.activeElement && document.activeElement.id === "busca";
+  $("#palco").innerHTML = topo(`${esc(e.grupo)} / ${esc(e.nome)}`, e.nome, esc(e.descricao), regras) +
+    `<div class="corpo"><div class="painel"><div class="barra-lista"><span class="apagado">${d.total} ${d.total === 1 ? "registro" : "registros"}</span>
+      <input id="busca" type="search" placeholder="Buscar em ${esc(e.nome.toLowerCase())}" value="${esc(busca)}" aria-label="Buscar"></div>` +
+    (d.registros.length ? `<div class="rolagem"><table><thead><tr><th>Código</th>${cols.map((c) => `<th>${esc(rotulo(ent, c))}</th>`).join("")}</tr></thead><tbody>` +
+      d.registros.map((r) => `<tr class="abre ${antes && antes[r.id] !== r.atualizado_em ? "novo" : ""}" data-abrir="${ent}/${r.id}"><td><span class="id">${esc(r.id)}</span></td>${cols.map((c) => `<td>${valor(ent, c, r)}</td>`).join("")}</tr>`).join("") +
+      `</tbody></table></div>` : `<p class="vazio" style="border:0">Nada encontrado${busca ? ` para “${esc(busca)}”` : ""}.</p>`) + `</div></div>`;
+  vistos[ent] = agora;
+  if (focado) { const i = $("#busca"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
 }
 
-/* ---------------- detalhe */
-let detalheAberto = "";
-async function abrirDetalhe(ent, id) {
-  detalheAberto = ent + "/" + id;
+/* registro */
+async function abrirRegistro(ent, id) {
+  gavetaAberta = ent + "/" + id;
   let d;
-  try { d = await api(`/api/registro/${ent}/${id}`); } catch (e) {
-    $("#detalhe").innerHTML = `<div class="detalhe-cab"><h2>${esc(id)}</h2><button class="secundario" data-fechar>Fechar</button></div><p class="vazio">Este registro não existe mais.</p>`;
-    $("#detalhe").hidden = false; $("#fundo").hidden = false; return;
+  try { d = await api(`/api/registro/${ent}/${id}`); }
+  catch (_) {
+    $("#gaveta").innerHTML = `<div class="gaveta-topo"><h2>${esc(id)}</h2><button data-fechar>Fechar</button></div><div class="gaveta-corpo"><p class="vazio">Este registro não existe mais. Ele pode ter sido excluído.</p></div>`;
+    $("#gaveta").hidden = $("#fundo").hidden = false; return;
   }
   const e = S.entidades[ent], r = d.registro;
-  const campos = Object.keys(e.campos).map((c) => {
-    const def = e.campos[c];
-    const v = r[c];
-    let html = def.tipo === "texto_longo" && v ? `<pre class="texto-longo">${esc(v)}</pre>` : fmt(ent, c, r).replace('class="trunc"', "");
-    if (def.tipo === "ref" && v) html = `<a href="#m/${def.ref}/${esc(v)}">${esc(r[c + "_nome"] || v)}</a> <span class="id">${esc(v)}</span>`;
-    return `<dt>${esc(rotulo(ent, c))}${e.sensiveis.includes(c) ? ' <span class="chip amarelo" title="Alterar pede aprovação">sensível</span>' : ""}</dt><dd>${html}</dd>`;
-  }).join("") + e.virtuais.map((c) => `<dt>${esc(rotulo(ent, c))}</dt><dd class="calc">${esc(r[c])} (calculado)</dd>`).join("");
-  const rel = Object.entries(d.relacionados).map(([k, lista]) => `<h3 style="margin-top:12px">${esc(S.entidades[k].nome)}</h3><div class="rel">${lista.map((x) => `<a href="#m/${k}/${x.id}"><span class="id">${x.id}</span> ${esc(x.titulo)}</a>`).join("")}</div>`).join("");
-  const hist = d.historico.map((h) => `<div class="hist"><b>${esc(OPS[h.operacao] || h.operacao)}</b> por ${esc(h.autor)} · ${esc(h.origem)} · ${esc(h.quando.slice(0, 16))}${h.aprovacao_id ? ` · aprovação #${h.aprovacao_id}` : ""}</div>`).join("");
-  $("#detalhe").innerHTML = `<div class="detalhe-cab"><div><span class="rotulo">${esc(e.nome)}</span><h2 style="margin-top:4px"><span class="id" style="font-size:16px">${esc(r.id)}</span> ${esc(r[e.titulo] || "")}</h2>
-      <small>Atualizado por ${esc(r.atualizado_por)} em ${esc((r.atualizado_em || "").slice(0, 16))}</small></div><button class="secundario" data-fechar>Fechar</button></div>
-    ${d.aprovacoes_pendentes.length ? `<p class="just" style="background:#fff1d0;padding:8px 12px;border-radius:8px">Pedidos pendentes sobre este registro: ${d.aprovacoes_pendentes.map((a) => `<a href="#aprovacoes">#${a}</a>`).join(", ")}</p>` : ""}
-    <dl class="campos">${campos}</dl>${rel ? `<span class="rotulo">Ligados a este registro</span>${rel}` : ""}
-    ${hist ? `<span class="rotulo">Histórico de alterações</span><div style="margin-top:8px">${hist}</div>` : ""}`;
-  $("#detalhe").hidden = false; $("#fundo").hidden = false;
+  const ficha = Object.keys(e.campos).map((c) => `<dt>${esc(rotulo(ent, c))}${e.sensiveis.includes(c) ? `<span class="sens" title="Alterar este campo pede aprovação">sensível</span>` : ""}</dt><dd>${valor(ent, c, r, true)}</dd>`).join("") +
+    e.virtuais.map((c) => `<dt>${esc(rotulo(ent, c))}</dt><dd>${valor(ent, c, r, true)} <small>calculado</small></dd>`).join("");
+  const ligados = Object.entries(d.relacionados).map(([k, lista]) => `<h3>${esc(S.entidades[k].nome)}</h3><ul class="ligados">${lista.map((x) => `<li><a href="#m/${k}/${x.id}"><span class="id">${x.id}</span></a> ${esc(x.titulo)}</li>`).join("")}</ul>`).join("");
+  const hist = d.historico.map((h) => `<li>${esc(OPS[h.operacao] || h.operacao)} por ${esc(h.autor)}, via ${esc(h.origem)}, em ${quando(h.quando)}${h.aprovacao_id ? `, aprovado no pedido ${h.aprovacao_id}` : ""}</li>`).join("");
+  $("#gaveta").innerHTML = `<div class="gaveta-topo"><div><small>${esc(e.nome)} ${esc(r.id)}</small><h2>${esc(r[e.titulo] || r.id)}</h2></div><button data-fechar>Fechar</button></div>
+    <div class="gaveta-corpo">
+      ${d.aprovacoes_pendentes.length ? `<div class="aviso">Há ${d.aprovacoes_pendentes.length === 1 ? "um pedido" : d.aprovacoes_pendentes.length + " pedidos"} de alteração esperando aprovação. <a href="#aprovacoes">Ver na fila</a></div>` : ""}
+      <dl class="ficha">${ficha}</dl>
+      <p class="apagado" style="margin-top:10px;font-size:13px">Última alteração por ${esc(r.atualizado_por)} em ${quando(r.atualizado_em)}.</p>
+      ${ligados ? `<h2 style="margin-top:28px">Registros ligados</h2>${ligados}` : ""}
+      ${hist ? `<h2 style="margin-top:28px">Histórico</h2><ul class="historico" style="padding-left:18px">${hist}</ul>` : ""}
+    </div>`;
+  $("#gaveta").hidden = $("#fundo").hidden = false;
 }
-function fecharDetalhe(mudarHash = true) {
-  if ($("#detalhe").hidden) return;
-  $("#detalhe").hidden = true; $("#fundo").hidden = true; detalheAberto = "";
-  if (mudarHash) { const [b, ent] = (location.hash.slice(1) || "").split("/"); if (b === "m") history.replaceState(null, "", "#m/" + ent); }
+function fecharRegistro(mudarEndereco = true) {
+  if ($("#gaveta").hidden) return;
+  $("#gaveta").hidden = $("#fundo").hidden = true; gavetaAberta = "";
+  if (mudarEndereco) { const [b, ent] = location.hash.slice(1).split("/"); if (b === "m") history.replaceState(null, "", "#m/" + ent); }
 }
 
-/* ---------------- aprovações */
-function tabelaDiff(a) {
+/* aprovações */
+const comNome = (a, v) => v !== null && v !== undefined && a.nomes && a.nomes[v] ? `${a.nomes[v]} (${v})` : v;
+function oQueMuda(a) {
   const ent = a.entidade;
-  const nm = (v) => v !== null && v !== undefined && a.nomes && a.nomes[v] ? `${a.nomes[v]} (${v})` : v;
-  if (a.operacao === "atualizar" || a.operacao === "enviar") {
-    return `<table class="diff"><thead><tr><th>Campo</th><th>Hoje</th><th>Depois</th></tr></thead><tbody>${Object.keys(a.dados || {}).map((c) =>
-      `<tr><td>${esc(rotulo(ent, c))}</td><td class="antes">${esc(nm((a.antes || {})[c]) ?? "—")}</td><td class="depois">${esc(nm(a.dados[c]) ?? "—")}</td></tr>`).join("")}</tbody></table>`;
-  }
-  if (a.operacao === "criar") {
-    return `<table class="diff"><tbody>${Object.entries(a.dados || {}).filter(([, v]) => v !== null && v !== "").map(([c, v]) =>
-      `<tr><td style="width:180px">${esc(rotulo(ent, c))}</td><td class="depois" style="white-space:pre-wrap">${esc(nm(v))}</td></tr>`).join("")}</tbody></table>`;
-  }
-  if (a.operacao === "excluir") {
-    return `<p class="meta">Registro que será apagado:</p><table class="diff"><tbody>${Object.entries(a.antes || {}).filter(([k, v]) => k !== "id" && v !== null && v !== "" && !k.startsWith("_")).slice(0, 12).map(([c, v]) =>
-      `<tr><td style="width:180px">${esc(rotulo(ent, c))}</td><td class="antes">${esc(String(nm(v)).slice(0, 300))}</td></tr>`).join("")}</tbody></table>`;
-  }
+  if (a.operacao === "atualizar") return `<table><thead><tr><th>Campo</th><th>Hoje</th><th>Depois de aprovar</th></tr></thead><tbody>` +
+    Object.keys(a.dados || {}).map((c) => `<tr><td>${esc(rotulo(ent, c))}</td><td class="antes">${esc(comNome(a, (a.antes || {})[c]) ?? "vazio")}</td><td class="depois">${esc(comNome(a, a.dados[c]) ?? "vazio")}</td></tr>`).join("") + `</tbody></table>`;
+  if (a.operacao === "criar") return `<table><thead><tr><th>Campo</th><th>Valor do novo registro</th></tr></thead><tbody>` +
+    Object.entries(a.dados || {}).filter(([, v]) => v !== null && v !== "").map(([c, v]) => `<tr><td>${esc(rotulo(ent, c))}</td><td class="depois" style="white-space:pre-wrap">${esc(comNome(a, v))}</td></tr>`).join("") + `</tbody></table>`;
+  if (a.operacao === "excluir") return `<table><thead><tr><th>Campo</th><th>Registro que será apagado</th></tr></thead><tbody>` +
+    Object.entries(a.antes || {}).filter(([k, v]) => k !== "id" && v !== null && v !== "").slice(0, 12).map(([c, v]) => `<tr><td>${esc(rotulo(ent, c))}</td><td class="antes">${esc(String(comNome(a, v)).slice(0, 300))}</td></tr>`).join("") + `</tbody></table>`;
   return "";
 }
-let comunicacoesCache = {};
-async function vistaAprovacoes() {
-  const lista = await api("/api/aprovacoes" + (subAprov === "pendente" ? "?status=pendente" : ""));
-  const mostrar = subAprov === "pendente" ? lista : lista.filter((a) => a.status !== "pendente");
-  for (const a of mostrar.filter((x) => x.operacao === "enviar" && x.registro_id && !comunicacoesCache[x.registro_id])) {
-    try { comunicacoesCache[a.registro_id] = (await api(`/api/registro/comunicacoes/${a.registro_id}`)).registro; } catch (_) {}
-  }
-  const quem = ler("aprovador");
-  $("#conteudo").innerHTML = `<span class="rotulo">Human in the loop</span><h1>Aprovações</h1>
-    <p class="suave" style="max-width:72ch;margin:6px 0 12px">Tudo o que os agentes pediram e a política não deixa fazer sozinho. Aprovar executa a operação exatamente como pedida; rejeitar não muda nada, e o agente vê o seu comentário em <code>consultar_aprovacao</code>. É preciso o token de aprovação.</p>
-    <div class="subabas"><button data-sub="pendente" aria-pressed="${subAprov === "pendente"}">Pendentes</button><button data-sub="decididas" aria-pressed="${subAprov !== "pendente"}">Decididas</button>
-      <span class="suave" style="align-self:center;margin-left:8px">Aprovando como: <b>${esc(quem || "não definido")}</b> <a href="#" id="trocarAprovador">trocar</a></span></div>` +
-    (mostrar.length ? mostrar.map((a) => {
-      const com = a.operacao === "enviar" ? comunicacoesCache[a.registro_id] : null;
-      return `<article class="aprov ${a.status === "pendente" ? "pendente" : ""}">
-      <div class="aprov-cab"><div><span class="rotulo">#${a.id} · ${esc(OPS[a.operacao] || a.operacao)} · ${esc(a.entidade_nome)}</span>
-        <h3 style="margin-top:4px">${a.registro_id ? `<a href="#m/${a.entidade}/${a.registro_id}"><span class="id">${esc(a.registro_id)}</span></a> ` : ""}${esc(a.titulo || "")}</h3>
-        <div class="meta">Pedido por <b>${esc(a.autor)}</b> via ${esc(a.origem)} em ${esc(a.criado_em.slice(0, 16))} · motivo: ${esc(a.motivo_aprovacao)}</div></div>
-        <span class="chip ${corDe(a.status)}">${esc(a.status)}</span></div>
-      ${a.justificativa ? `<div class="just"><b>Justificativa do agente:</b> ${esc(a.justificativa)}</div>` : ""}
-      ${com ? `<div><div class="meta">Para: <b>${esc(com.para)}</b> · ${esc(com.tipo)} · Assunto: <b>${esc(com.assunto)}</b></div><pre class="texto-longo">${esc(com.corpo)}</pre></div>` : tabelaDiff(a)}
-      ${a.status === "pendente" ? `<div class="decisao"><textarea data-comentario="${a.id}" placeholder="Comentário (opcional; o agente recebe)"></textarea>
-        <button data-decidir="${a.id}" data-aprovar="1">Aprovar e executar</button><button class="perigo" data-decidir="${a.id}" data-aprovar="0">Rejeitar</button></div>`
-        : `<div class="meta">${esc(a.status === "aprovada" ? "Aprovada" : a.status === "falhou" ? "Aprovada, mas falhou" : "Rejeitada")} por <b>${esc(a.decidido_por)}</b> em ${esc((a.decidido_em || "").slice(0, 16))}${a.comentario ? ` · “${esc(a.comentario)}”` : ""}</div>`}
-    </article>`;
-    }).join("") : `<p class="vazio">${subAprov === "pendente" ? "Nenhum pedido aguardando. Quando um agente pedir algo sensível, aparece aqui." : "Nada decidido ainda."}</p>`);
-}
-
-/* ---------------- governança */
-function vistaGovernanca() {
-  const sel = (ent, op, v) => `<select class="${v}" data-pol="${ent}" data-op="${op}" aria-label="${ent} ${op}">${S.modos.map((m) => `<option value="${m}" ${m === v ? "selected" : ""}>${MODO_NOME[m]}</option>`).join("")}</select>`;
-  const sens = (ent, e) => {
-    const lista = Object.keys(e.campos).filter((c) => !e.campos[c].sistema);
-    return `<div class="sens" style="display:inline-flex">${lista.map((c) => `<label><input type="checkbox" data-sens="${ent}" value="${c}" ${e.sensiveis.includes(c) ? "checked" : ""}>${esc(c)}</label>`).join("")}</div>`;
+const mensagens = {};
+async function telaAprovacoes() {
+  const lista = await api("/api/aprovacoes" + (filtroAprov === "pendente" ? "?status=pendente" : ""));
+  const mostrar = filtroAprov === "pendente" ? lista : lista.filter((a) => a.status !== "pendente");
+  await Promise.all(mostrar.filter((a) => a.operacao === "enviar" && !mensagens[a.registro_id]).map(async (a) => {
+    try { mensagens[a.registro_id] = (await api(`/api/registro/comunicacoes/${a.registro_id}`)).registro; } catch (_) {}
+  }));
+  const aprovador = lerSessao("aprovador");
+  const cartao = (a) => {
+    const m = a.operacao === "enviar" ? mensagens[a.registro_id] : null;
+    const alvo = a.registro_id ? `<a href="#m/${a.entidade}/${a.registro_id}">${esc(a.registro_id)}</a>` : "novo registro";
+    const decisao = a.status === "pendente"
+      ? `<label for="c${a.id}" style="font-weight:600;font-size:14px">Comentário para o agente</label><textarea id="c${a.id}" data-comentario="${a.id}" placeholder="Opcional. O agente lê isto ao consultar o pedido."></textarea>
+         <div class="acoes"><button data-decidir="${a.id}" data-aprovar="1">Aprovar</button><button class="recusar" data-decidir="${a.id}" data-aprovar="0">Rejeitar</button></div>
+         <small>Aprovar executa a operação exatamente como mostrada.</small>`
+      : `<div class="decidido"><strong><span class="st ${classeStatus(a.status)}">${a.status === "aprovada" ? "Aprovado" : a.status === "falhou" ? "Aprovado, mas falhou" : "Rejeitado"}</span></strong>por ${esc(a.decidido_por)} em ${quando(a.decidido_em)}${a.comentario ? `<p style="margin-top:8px">“${esc(a.comentario)}”</p>` : ""}</div>`;
+    return `<article class="pedido ${a.status}"><div class="pedido-conteudo">
+        <small>Pedido ${a.id}, ${esc(OPS[a.operacao] || a.operacao).toLowerCase()} em ${esc(a.entidade_nome)}, ${alvo}</small>
+        <h2>${esc(a.titulo || a.registro_id || "Novo registro")}</h2>
+        <p class="contexto">Pedido por <b>${esc(a.autor)}</b> via ${esc(a.origem)} em ${quando(a.criado_em)}. Motivo da revisão: ${esc(a.motivo_aprovacao)}.</p>
+        ${a.justificativa ? `<p class="porque"><b>Justificativa do agente:</b> ${esc(a.justificativa)}</p>` : ""}
+        ${m ? `<div class="mensagem"><header>Para <b>${esc(m.para)}</b><br>Assunto: <b>${esc(m.assunto)}</b></header><pre>${esc(m.corpo)}</pre></div>` : oQueMuda(a)}
+      </div><div class="decidir">${decisao}</div></article>`;
   };
-  $("#conteudo").innerHTML = `<span class="rotulo">Governança</span><h1>Políticas da plataforma</h1>
-    <p class="suave" style="max-width:74ch;margin:6px 0 16px">O servidor aplica estas regras em toda chamada, venha de onde vier. Mude ao vivo para subir ou descer um degrau da escada de agência. Precisa do token de administrador.</p>
-    <div class="rolagem gov"><table><thead><tr><th>Módulo</th><th>Criar</th><th>Alterar</th><th>Excluir</th></tr></thead><tbody>
-    ${Object.entries(S.entidades).map(([k, e]) => `<tr><td style="border:0;padding-bottom:2px"><b>${esc(e.nome)}</b> <small>${esc(e.grupo)}</small></td><td style="border:0;padding-bottom:2px">${sel(k, "criar", e.politica.criar)}</td><td style="border:0;padding-bottom:2px">${sel(k, "atualizar", e.politica.atualizar)}</td><td style="border:0;padding-bottom:2px">${sel(k, "excluir", e.politica.excluir)}</td></tr>
-      <tr><td colspan="4" style="padding-top:4px"><small style="margin-right:6px">Sensíveis (alterar pede aprovação):</small>${sens(k, e)}</td></tr>`).join("")}
-    </tbody></table></div>
-    <h2 style="margin:24px 0 8px">Ações</h2>
-    <div class="gov"><table><tbody><tr><td><b>enviar_comunicacao</b><br><small>E-mails, cartas e notificações para fora da Colliers</small></td>
-      <td><select class="${S.acoes.enviar_comunicacao}" data-acao="enviar_comunicacao">${S.modos.map((m) => `<option value="${m}" ${m === S.acoes.enviar_comunicacao ? "selected" : ""}>${MODO_NOME[m]}</option>`).join("")}</select></td></tr></tbody></table></div>
-    <p style="margin-top:20px"><button class="secundario" id="restaurar">Restaurar o padrão</button></p>`;
+  $("#palco").innerHTML = topo("Governança / Aprovações", "Aprovações", "Tudo o que os agentes pediram e que a política não deixa fazer sozinho. Rejeitar não muda nada, e o agente recebe o seu comentário.") +
+    `<div class="corpo"><div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin-bottom:20px">
+      <div class="filtros" style="margin:0"><button data-filtro="pendente" aria-pressed="${filtroAprov === "pendente"}">Esperando decisão</button><button data-filtro="decididas" aria-pressed="${filtroAprov !== "pendente"}">Já decididos</button></div>
+      <span class="apagado">Decidindo como <b style="color:var(--tinta)">${esc(aprovador || "nome não informado")}</b>. <button class="link" id="trocarNome">Trocar nome</button></span></div>` +
+    (mostrar.length ? mostrar.map(cartao).join("") : `<p class="vazio">${filtroAprov === "pendente" ? "Nenhum pedido esperando. Quando um agente tentar algo sensível, ele aparece aqui." : "Nenhum pedido foi decidido ainda."}</p>`) + `</div>`;
 }
 
-/* ---------------- auditoria */
-async function vistaAuditoria() {
+/* políticas */
+function telaPoliticas() {
+  const sel = (ent, op, v) => `<select data-pol="${ent}" data-op="${op}" data-modo="${v}" aria-label="${op} em ${ent}">${S.modos.map((m) => `<option value="${m}" ${m === v ? "selected" : ""}>${MODOS[m]}</option>`).join("")}</select>`;
+  const sens = (ent, e) => `<details><summary>${e.sensiveis.length ? e.sensiveis.map((c) => esc(rotulo(ent, c))).join(", ") : "Nenhum"}</summary><div class="campos-sens">${Object.keys(e.campos).filter((c) => !e.campos[c].sistema).map((c) => `<label><input type="checkbox" data-sens="${ent}" value="${c}" ${e.sensiveis.includes(c) ? "checked" : ""}>${esc(rotulo(ent, c))}</label>`).join("")}</div></details>`;
+  $("#palco").innerHTML = topo("Governança / Políticas", "Políticas", "O servidor aplica estas regras em toda chamada, venha do Claude, do ChatGPT, do chat do lab ou de código. Mudar uma regra exige o token de administrador e vale na hora.") +
+    `<div class="corpo"><div class="painel rolagem politicas"><table><thead><tr><th>Módulo</th><th>Criar</th><th>Alterar</th><th>Excluir</th><th>Campos sensíveis</th></tr></thead><tbody>` +
+    Object.entries(S.entidades).map(([k, e]) => `<tr><td><b style="font-weight:600">${esc(e.nome)}</b><span class="sub">${esc(e.grupo)}</span></td><td>${sel(k, "criar", e.politica.criar)}</td><td>${sel(k, "atualizar", e.politica.atualizar)}</td><td>${sel(k, "excluir", e.politica.excluir)}</td><td>${sens(k, e)}</td></tr>`).join("") +
+    `</tbody></table></div>
+    <div class="painel politicas" style="margin-top:28px"><table><thead><tr><th>Ação externa</th><th>Regra</th></tr></thead><tbody><tr><td><b style="font-weight:600">Enviar comunicação</b><span class="sub">E-mails, cartas e notificações para fora da Colliers</span></td>
+      <td><select data-acao="enviar_comunicacao" data-modo="${S.acoes.enviar_comunicacao}">${S.modos.map((m) => `<option value="${m}" ${m === S.acoes.enviar_comunicacao ? "selected" : ""}>${MODOS[m]}</option>`).join("")}</select></td></tr></tbody></table></div>
+    <p style="margin-top:20px"><button class="contorno" id="restaurar">Voltar às regras padrão</button></p></div>`;
+}
+
+/* auditoria */
+async function telaAuditoria() {
   const lista = await api("/api/auditoria");
-  const resumo = (a) => {
+  const mudanca = (a) => {
+    if (a.operacao === "criar") return "Registro criado";
+    if (a.operacao === "excluir") return "Registro excluído";
     const antes = a.antes ? JSON.parse(a.antes) : {}, depois = a.depois ? JSON.parse(a.depois) : {};
-    if (a.operacao === "criar") return "registro criado";
-    if (a.operacao === "excluir") return "registro excluído";
-    return Object.keys(depois).filter((k) => JSON.stringify(antes[k]) !== JSON.stringify(depois[k])).map((k) => `${k}: ${String(antes[k] ?? "—").slice(0, 40)} → ${String(depois[k] ?? "—").slice(0, 40)}`).join("; ");
+    return Object.keys(depois).filter((k) => JSON.stringify(antes[k]) !== JSON.stringify(depois[k])).map((k) => `${rotulo(a.entidade, k)}: ${String(antes[k] ?? "vazio").slice(0, 40)} → ${String(depois[k] ?? "vazio").slice(0, 40)}`).join("; ");
   };
-  $("#conteudo").innerHTML = `<span class="rotulo">Governança</span><h1>Auditoria</h1>
-    <p class="suave" style="margin:6px 0 14px">Toda escrita que de fato aconteceu, com autor, origem e, quando houve, o número da aprovação.</p>` +
-    (lista.length ? `<div class="rolagem"><table><thead><tr><th>Quando</th><th>Operação</th><th>Registro</th><th>Autor</th><th>Origem</th><th>Aprovação</th><th>Mudança</th></tr></thead><tbody>
-    ${lista.map((a) => `<tr><td>${esc(a.quando.slice(5, 16))}</td><td>${esc(OPS[a.operacao] || a.operacao)}</td><td><a href="#m/${a.entidade}/${a.registro_id}"><span class="id">${esc(a.registro_id)}</span></a></td>
-      <td>${esc(a.autor)}</td><td>${esc(a.origem)}</td><td>${a.aprovacao_id ? "#" + a.aprovacao_id : "—"}</td><td><span class="trunc">${esc(resumo(a))}</span></td></tr>`).join("")}</tbody></table></div>`
-    : `<p class="vazio">Nenhuma escrita ainda.</p>`);
+  $("#palco").innerHTML = topo("Governança / Auditoria", "Auditoria", "Cada escrita que de fato aconteceu, com quem pediu, por onde e qual aprovação a liberou.") +
+    `<div class="corpo">` + (lista.length ? `<div class="painel rolagem"><table><thead><tr><th>Quando</th><th>Operação</th><th>Registro</th><th>Autor</th><th>Origem</th><th>Aprovação</th><th>O que mudou</th></tr></thead><tbody>` +
+      lista.map((a) => `<tr><td class="num">${quando(a.quando)}</td><td>${esc(OPS[a.operacao] || a.operacao)}</td><td><a class="id" href="#m/${a.entidade}/${a.registro_id}">${esc(a.registro_id)}</a></td><td>${esc(a.autor)}</td><td>${esc(a.origem)}</td><td class="num">${a.aprovacao_id ? "Pedido " + a.aprovacao_id : "—"}</td><td><span class="duas-linhas">${esc(mudanca(a))}</span></td></tr>`).join("") +
+      `</tbody></table></div>` : `<p class="vazio">Nenhuma escrita ainda. Assim que um agente alterar algo, ela aparece aqui.</p>`) + `</div>`;
 }
 
-/* ---------------- conectar */
-function vistaConectar() {
-  const ferr = [["descrever_plataforma", "leitura", "Módulos, campos, opções e políticas"], ["listar", "leitura", "Registros de um módulo, com filtros e busca"], ["ler", "leitura", "Um registro completo, com os ligados a ele"],
-    ["buscar", "leitura", "Texto em todos os módulos"], ["consultar_aprovacao", "leitura", "Situação de um pedido"], ["criar", "escrita", "Cria um registro"], ["atualizar", "escrita", "Altera campos"],
-    ["excluir", "escrita · destrutiva", "Exclui um registro"], ["enviar_comunicacao", "escrita", "Envia um rascunho para fora"]];
-  $("#conteudo").innerHTML = `<span class="rotulo">Conectar</span><h1>Ligar um agente ao Hub</h1>
-    <h3 style="margin:18px 0 6px">Endereço MCP (sem autenticação)</h3><p><code style="background:var(--azul-palido);padding:10px 14px;border-radius:8px;display:inline-block;word-break:break-all">${esc(est.mcp_url)}</code></p>
-    <p><b>Claude:</b> Configurações › Conectores › Adicionar conector personalizado.<br><b>ChatGPT:</b> modo desenvolvedor › criar conector com o endereço. Em contas corporativas, o administrador precisa liberar.<br>
-    <b>Código:</b> qualquer cliente MCP (o notebook usa o SDK Python).<br><b>Sem conector:</b> use o <a href="/chat" target="_blank">chat do lab</a>, que traz modelos de agente prontos.</p>
-    <h3 style="margin:18px 0 6px">As 9 ferramentas</h3><div class="rolagem"><table><tbody>${ferr.map((f) => `<tr><td><code>${f[0]}</code></td><td><span class="tag ${f[1].startsWith("leitura") ? "leitura" : "escrita"}">${f[1]}</span></td><td>${f[2]}</td></tr>`).join("")}</tbody></table></div>
-    <h3 style="margin:22px 0 6px">Instrutor</h3><p><button class="perigo" id="reiniciar">Reiniciar dados</button> <span class="suave">Volta todos os módulos ao ponto de partida (datas a partir de hoje). As políticas ficam como estão.</span></p>`;
+/* conectar */
+function telaConectar() {
+  const ferramentas = [["descrever_plataforma", "Leitura", "Mostra os módulos, os campos e as regras de cada um"], ["listar", "Leitura", "Lista registros com filtros, busca e ordenação"],
+    ["ler", "Leitura", "Abre um registro e o que está ligado a ele"], ["buscar", "Leitura", "Procura um texto em todos os módulos"], ["consultar_aprovacao", "Leitura", "Mostra a decisão sobre um pedido"],
+    ["criar", "Escrita", "Cria um registro"], ["atualizar", "Escrita", "Altera campos de um registro"], ["excluir", "Escrita destrutiva", "Exclui um registro"], ["enviar_comunicacao", "Escrita", "Envia um rascunho de e-mail ou carta"]];
+  $("#palco").innerHTML = topo("Conectar um agente", "Conectar um agente", "Qualquer assistente compatível com MCP enxerga as ferramentas do Hub só com o endereço abaixo.") +
+    `<div class="corpo"><div class="painel" style="padding:24px 26px">
+      <h2>Endereço do MCP</h2><p style="margin:12px 0 4px"><code style="font-size:15px;padding:10px 14px;display:inline-block;word-break:break-all">${esc(est.mcp_url)}</code> <button class="contorno" id="copiar" style="margin-left:6px">Copiar</button></p>
+      <p class="apagado">Sem autenticação: use apenas com os dados fictícios do lab.</p>
+      <h3 style="margin-top:24px">Claude</h3><p>Configurações, Conectores, Adicionar conector personalizado. Cole o endereço e salve.</p>
+      <h3 style="margin-top:16px">ChatGPT</h3><p>Ative o modo desenvolvedor nas configurações e crie um conector com o endereço. Em contas corporativas, o administrador precisa liberar conectores personalizados.</p>
+      <h3 style="margin-top:16px">Sem conector</h3><p>Use o <a href="/chat" target="_blank">chat do lab</a>: ele chama as mesmas ferramentas e traz seis modelos de agente prontos.</p></div>
+    <div class="painel" style="margin-top:28px"><table><thead><tr><th>Ferramenta</th><th>Tipo</th><th>O que faz</th></tr></thead><tbody>${ferramentas.map((f) => `<tr><td><code>${f[0]}</code></td><td>${f[1]}</td><td>${f[2]}</td></tr>`).join("")}</tbody></table></div>
+    <div class="painel" style="margin-top:28px;padding:24px 26px"><h2>Instrutor</h2><p style="margin:8px 0 14px" class="apagado">Recria todos os módulos com os dados iniciais, com datas a partir de hoje. As regras de Políticas continuam como estão.</p>
+      <button class="recusar" id="reiniciar">Reiniciar os dados</button></div></div>`;
 }
 
-/* ---------------- feed e atualização */
-async function puxarFeed() {
+/* atividade */
+async function puxarAtividade() {
   try {
     const j = await api(`/api/feed?apos=${ultimoEvento}`);
     const lista = $("#eventos");
-    if (j.ultimo && j.ultimo < ultimoEvento) { lista.innerHTML = ""; ultimoEvento = 0; return puxarFeed(); }
+    if (j.ultimo && j.ultimo < ultimoEvento) { lista.innerHTML = ""; ultimoEvento = 0; return puxarAtividade(); }
     j.eventos.reverse().forEach((e) => {
       const li = document.createElement("li");
-      li.className = "evento" + (ultimoEvento ? " novo" : "");
-      const alvo = e.entidade && e.registro_id ? ` <a href="#m/${esc(e.entidade)}/${esc(e.registro_id)}" class="id">${esc(e.registro_id)}</a>` : "";
-      li.innerHTML = `<time>${esc(e.quando.slice(11, 19))}</time><div><p class="acao"><span class="tag ${esc(e.tipo)}">${esc(NOMES_TIPO[e.tipo] || e.tipo)}</span> <b>${esc(e.ferramenta)}</b>${alvo}</p>
-        <p>${esc(e.resumo)}</p><p class="quem">${e.autor ? esc(e.autor) + " · " : ""}${esc(e.origem)}</p></div>`;
+      li.className = e.tipo + (ultimoEvento ? " chegou" : "");
+      const alvo = e.entidade && e.registro_id ? ` <a href="#m/${esc(e.entidade)}/${esc(e.registro_id)}">${esc(e.registro_id)}</a>` : "";
+      li.innerHTML = `<div class="linha1"><span><b>${esc(TIPOS[e.tipo] || e.tipo)}</b> ${esc(e.ferramenta)}${alvo}</span><span class="num">${esc(e.quando.slice(11, 19))}</span></div>
+        <p>${esc(e.resumo)}</p><div class="quem">${e.autor ? esc(e.autor) + ", " : ""}${esc(e.origem)}</div>`;
       lista.prepend(li);
     });
     while (lista.children.length > 150) lista.lastChild.remove();
@@ -323,90 +309,92 @@ async function puxarFeed() {
   } catch (_) {}
 }
 
-async function tique() {
+async function atualizar() {
   try {
     const e = await api("/api/estado");
     const mudou = e.versao !== est.versao;
     est = e;
-    $("#mcpUrl").textContent = e.mcp_url;
     if (mudou) {
       S = await api("/api/schema");
-      const digitando = document.activeElement && document.activeElement.matches("textarea, select");
-      if (!digitando) await rotear(true);
-      if (detalheAberto) { const [ent, id] = detalheAberto.split("/"); abrirDetalhe(ent, id); }
+      const ocupado = document.activeElement && document.activeElement.matches("textarea, select, input[type=checkbox]");
+      if (!ocupado) await rotear(true); else desenharMenu();
+      if (gavetaAberta) { const [ent, id] = gavetaAberta.split("/"); abrirRegistro(ent, id); }
     }
   } catch (_) {}
-  puxarFeed();
+  puxarAtividade();
 }
 
-/* ---------------- eventos */
-async function comToken(tipo, fn) {
+/* ações */
+async function comToken(tipo, acao) {
   const chave = tipo === "admin" ? "tokenAdmin" : "tokenAprovador";
-  let t = ler(chave);
-  if (!t) { t = prompt(tipo === "admin" ? "Token de administrador:" : "Token de aprovação:"); if (!t) return; guardar(chave, t); }
-  try { await fn(t); } catch (e) {
-    if (e.status === 403) { guardar(chave, ""); alert("Token inválido."); } else alert(e.message);
-  }
-  await tique();
+  let t = lerSessao(chave);
+  if (!t) { t = prompt(tipo === "admin" ? "Token de administrador" : "Token de aprovação"); if (!t) return false; gravarSessao(chave, t.trim()); t = t.trim(); }
+  try { await acao(t); return true; }
+  catch (e) { if (e.status === 403) { gravarSessao(chave, ""); alert("Token incorreto. Tente de novo."); } else alert(e.message); return false; }
+  finally { await atualizar(); }
 }
 
 document.addEventListener("click", async (ev) => {
-  const linha = ev.target.closest("[data-abrir]");
-  if (linha && !ev.target.closest("a")) { location.hash = "m/" + linha.dataset.abrir; return; }
-  if (ev.target.closest("[data-fechar]") || ev.target.id === "fundo") { fecharDetalhe(); return; }
-  const sub = ev.target.closest("[data-sub]");
-  if (sub) { subAprov = sub.dataset.sub; vistaAprovacoes(); return; }
-  if (ev.target.id === "trocarAprovador") { ev.preventDefault(); const n = prompt("Seu nome (aparece como quem decidiu):", ler("aprovador")); if (n) guardar("aprovador", n.trim()); vistaAprovacoes(); return; }
-  const d = ev.target.closest("[data-decidir]");
-  if (d) {
-    if (!ler("aprovador")) { const n = prompt("Seu nome (aparece como quem decidiu):"); if (!n) return; guardar("aprovador", n.trim()); }
-    const comentario = (document.querySelector(`[data-comentario="${d.dataset.decidir}"]`) || {}).value || "";
-    d.disabled = true;
-    await comToken("aprovador", async (t) => {
-      const r = await api(`/api/aprovacoes/${d.dataset.decidir}`, {token: t, aprovar: d.dataset.aprovar === "1", comentario, por: ler("aprovador")});
+  const t = ev.target;
+  const linha = t.closest("[data-abrir]");
+  if (linha && !t.closest("a")) { location.hash = "m/" + linha.dataset.abrir; return; }
+  if (t.closest("[data-fechar]") || t.id === "fundo") { fecharRegistro(); return; }
+  const f = t.closest("[data-filtro]");
+  if (f) { filtroAprov = f.dataset.filtro; telaAprovacoes(); return; }
+  if (t.id === "trocarNome") { const n = prompt("Seu nome, para registrar quem decidiu", lerSessao("aprovador")); if (n && n.trim()) gravarSessao("aprovador", n.trim()); telaAprovacoes(); return; }
+  const dec = t.closest("[data-decidir]");
+  if (dec) {
+    if (!lerSessao("aprovador")) { const n = prompt("Seu nome, para registrar quem decidiu"); if (!n || !n.trim()) return; gravarSessao("aprovador", n.trim()); }
+    const comentario = (document.querySelector(`[data-comentario="${dec.dataset.decidir}"]`) || {}).value || "";
+    dec.disabled = true;
+    await comToken("aprovador", async (tk) => {
+      const r = await api(`/api/aprovacoes/${dec.dataset.decidir}`, {token: tk, aprovar: dec.dataset.aprovar === "1", comentario, por: lerSessao("aprovador")});
       if (r.status === "falhou") alert("A operação não pôde ser executada: " + r.erro);
     });
-    vistaAtual = ""; rotear(true);
-    return;
+    dec.disabled = false; vista = ""; rotear(true); return;
   }
-  if (ev.target.id === "restaurar") { await comToken("admin", (t) => api("/api/politicas", {token: t, restaurar: true})); return; }
-  if (ev.target.id === "reiniciar") {
+  if (t.id === "restaurar") { await comToken("admin", (tk) => api("/api/politicas", {token: tk, restaurar: true})); vista = ""; rotear(true); return; }
+  if (t.id === "reiniciar") {
     if (!confirm("Apagar tudo o que os agentes fizeram e recriar os dados iniciais?")) return;
-    await comToken("admin", (t) => api("/api/reiniciar", {token: t}));
-    $("#eventos").innerHTML = ""; ultimoEvento = 0; cacheIds = {}; comunicacoesCache = {};
+    if (await comToken("admin", (tk) => api("/api/reiniciar", {token: tk}))) { $("#eventos").innerHTML = ""; ultimoEvento = 0; vistos = {}; vista = ""; rotear(true); }
     return;
   }
-  if (ev.target.id === "copiar") { navigator.clipboard.writeText($("#mcpUrl").textContent); ev.target.textContent = "Copiado"; setTimeout(() => (ev.target.textContent = "Copiar"), 1500); }
+  if (t.id === "copiar") { navigator.clipboard.writeText(est.mcp_url).catch(() => {}); t.textContent = "Copiado"; setTimeout(() => (t.textContent = "Copiar"), 1500); }
 });
 
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
+  if (!t.dataset.pol && !t.dataset.acao && !t.dataset.sens) return;
   if (t.dataset.pol) await comToken("admin", (tk) => api("/api/politicas", {token: tk, entidade: t.dataset.pol, operacao: t.dataset.op, modo: t.value}));
   else if (t.dataset.acao) await comToken("admin", (tk) => api("/api/politicas", {token: tk, acao: t.dataset.acao, modo: t.value}));
-  else if (t.dataset.sens) {
+  else {
     const marcados = [...document.querySelectorAll(`[data-sens="${t.dataset.sens}"]:checked`)].map((x) => x.value);
     await comToken("admin", (tk) => api("/api/politicas", {token: tk, entidade: t.dataset.sens, sensiveis: marcados}));
   }
-  if (t.dataset.pol || t.dataset.acao || t.dataset.sens) { t.blur(); vistaAtual = ""; rotear(true); }
+  t.blur(); vista = ""; rotear(true);
 });
 
-let tBusca;
+let espera;
 document.addEventListener("input", (ev) => {
-  if (ev.target.id !== "buscaMod") return;
-  const ent = (location.hash.slice(1) || "").split("/")[1];
-  buscaModulo[ent] = ev.target.value;
-  clearTimeout(tBusca); tBusca = setTimeout(() => vistaModulo(ent), 250);
+  if (ev.target.id !== "busca") return;
+  const ent = location.hash.slice(1).split("/")[1];
+  buscas[ent] = ev.target.value;
+  clearTimeout(espera); espera = setTimeout(() => telaModulo(ent), 250);
 });
-document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") fecharDetalhe(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") fecharRegistro(); });
 window.addEventListener("hashchange", () => rotear(false));
 
-(async () => {
-  est = await api("/api/estado");
-  S = await api("/api/schema");
-  $("#mcpUrl").textContent = est.mcp_url;
+(async function iniciar() {
+  try {
+    est = await api("/api/estado");
+    S = await api("/api/schema");
+  } catch (e) {
+    $("#palco").innerHTML = topo("Erro", "O Hub não respondeu", "O servidor pode estar iniciando. Espere alguns segundos e recarregue a página.");
+    setTimeout(iniciar, 4000); return;
+  }
   await rotear(true);
-  puxarFeed();
-  setInterval(tique, 3000);
+  puxarAtividade();
+  setInterval(atualizar, 3000);
 })();
 </script>
 </body>

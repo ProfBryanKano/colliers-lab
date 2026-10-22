@@ -138,7 +138,7 @@ def semear() -> None:
     def texto(cid, imovel, unidade, cidade, area, uso, locador, locatario, ini, venc, prazo, aluguel, indice, renovacao, rescisao):
         return "\n".join([
             f"CONTRATO DE LOCAÇÃO NÃO RESIDENCIAL Nº {cid} (documento fictício, para fins didáticos)", "",
-            f"LOCADORA: {locador}.", f"LOCATÁRIA: {locatario}.", "",
+            f"LOCADORA: {locador.rstrip('.')}.", f"LOCATÁRIA: {locatario.rstrip('.')}.", "",
             f"CLÁUSULA 1ª – OBJETO. {imovel}, {unidade}, {cidade}, área privativa de {area:,} m², para uso como {uso}.".replace(f"{area:,}", f"{area:,}".replace(",", ".")),
             f"CLÁUSULA 2ª – PRAZO. {prazo}, de {extenso(ini)} a {extenso(venc)}.",
             f"CLÁUSULA 3ª – ALUGUEL. R$ {brl(aluguel)} por mês, com vencimento todo dia 10.",

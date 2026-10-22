@@ -1,15 +1,15 @@
+# Blueprint do Render: cria um serviço web a partir do Dockerfile deste repositório.
 services:
   - type: web
     name: colliers-lab
     runtime: docker
     plan: starter
     healthCheckPath: /saude
+    autoDeploy: true
     envVars:
-      - key: OPENROUTER_API_KEY
-        sync: false
       - key: ADMIN_TOKEN
         sync: false
-      - key: APROVADOR_TOKEN
+      - key: OPENROUTER_API_KEY
         sync: false
       - key: MCP_PATH
         value: mcp
