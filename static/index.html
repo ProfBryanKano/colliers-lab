@@ -3,209 +3,411 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Colliers Lab · Painel ao vivo</title>
+<title>Colliers Hub · Plataforma do lab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Platypi:wght@600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/estilo.css">
 </head>
 <body>
 <header class="topo">
   <div class="marca">
-    <h1>Colliers Lab</h1>
-    <p>Ambiente do laboratório de agentes. Todos os dados são fictícios.</p>
+    <span class="nome">Colliers</span><span class="sep" aria-hidden="true"></span>
+    <span class="produto">Hub · plataforma do lab de agentes<small>Simulação para treinamento. Todos os dados são fictícios.</small></span>
   </div>
   <div class="conexao">
-    <span>Endereço MCP</span>
+    <span class="rotulo">MCP</span>
     <code id="mcpUrl">carregando…</code>
     <button id="copiar" type="button">Copiar</button>
-    <a class="botao-claro" href="/chat">Abrir o chat do lab</a>
+    <a class="botao no-escuro" href="/chat" target="_blank">Chat do lab</a>
   </div>
 </header>
+<div class="faixa" aria-hidden="true"></div>
 
-<main class="grade">
-  <section class="feed" aria-labelledby="t-feed">
+<div class="hub">
+  <nav class="nav cartao" id="nav" aria-label="Módulos"></nav>
+  <main class="conteudo cartao" id="conteudo"></main>
+  <aside class="feed cartao" aria-labelledby="t-feed">
     <div class="feed-cab">
-      <h2 id="t-feed">Ao vivo</h2>
+      <span class="rotulo">Ao vivo</span>
+      <h2 id="t-feed">O que os agentes fazem</h2>
       <div class="legenda">
-        <span class="tag leitura">leitura</span>
-        <span class="tag escrita">escrita</span>
-        <span class="tag pendente">aguarda aprovação</span>
-        <span class="tag aprovacao">decisão humana</span>
+        <span class="tag leitura">leitura</span><span class="tag escrita">escrita</span>
+        <span class="tag pendente">aguarda aprovação</span><span class="tag aprovacao">decisão humana</span>
+        <span class="tag erro">recusado</span>
       </div>
     </div>
     <ol id="eventos" class="eventos" aria-live="polite"></ol>
-  </section>
+  </aside>
+</div>
 
-  <section class="dados">
-    <nav class="abas" role="tablist">
-      <button role="tab" data-aba="contratos" aria-selected="true">Contratos</button>
-      <button role="tab" data-aba="alertas">Datas críticas</button>
-      <button role="tab" data-aba="oportunidades">CRM</button>
-      <button role="tab" data-aba="inadimplencia">Inadimplência</button>
-      <button role="tab" data-aba="aprovacoes">Aprovações <span id="nPend" class="contador" hidden></span></button>
-      <button role="tab" data-aba="conectar">Como conectar</button>
-    </nav>
-    <div id="painel" class="painel" role="tabpanel"></div>
-  </section>
-</main>
+<div class="fundo" id="fundo" hidden></div>
+<section class="detalhe" id="detalhe" hidden aria-label="Registro"></section>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const brl = (v) => Number(v).toLocaleString("pt-BR", {style: "currency", currency: "BRL", maximumFractionDigits: 0});
-const dataBR = (s) => s ? s.slice(0, 10).split("-").reverse().join("/") : "";
-const diasAte = (s) => Math.round((new Date(s + "T00:00:00") - new Date(new Date().toDateString())) / 86400000);
+const dataBR = (s) => s ? String(s).slice(0, 10).split("-").reverse().join("/") : "";
+const num = (v) => Number(v).toLocaleString("pt-BR");
+const ler = (k) => { try { return sessionStorage.getItem(k) || ""; } catch (_) { return ""; } };
+const guardar = (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} };
 
-let dados = null, versao = 0, ultimoEvento = 0, aba = "contratos";
-const nomesTipo = {leitura: "leitura", escrita: "escrita", pendente: "aguarda aprovação", aprovacao: "decisão humana", sistema: "sistema"};
+let S = null, est = {versao: 0}, ultimoEvento = 0, vistaAtual = "", subAprov = "pendente", cacheIds = {};
+const NOMES_TIPO = {leitura: "leitura", escrita: "escrita", pendente: "aguarda aprovação", aprovacao: "decisão humana", sistema: "sistema", erro: "recusado", bloqueado: "bloqueado"};
+const OPS = {criar: "Criar", atualizar: "Alterar", excluir: "Excluir", enviar: "Enviar comunicação"};
+const MODO_NOME = {livre: "livre", aprovacao: "com aprovação", bloqueado: "bloqueado"};
 
+const COR = {
+  amarelo: ["Em aberto", "Nova", "Aberto", "Pendente", "Em triagem", "Aguardando aprovação", "Em negociação", "Aguardando fornecedor", "Rascunho", "Alta", "Em renovação", "Em atendimento", "pendente"],
+  vermelho: ["Urgente", "Enviada ao jurídico", "rejeitada", "falhou"],
+  verde: ["Paga", "Concluído", "Concluída", "Enviada", "Ganha", "Vigente", "Respondida", "Encaminhada", "Acordo fechado", "aprovada"],
+  cinza: ["Encerrado", "Perdida", "Cancelada", "Arquivada", "Baixa", "Não classificada", "Não definida"],
+};
+const corDe = (v) => Object.keys(COR).find((k) => COR[k].includes(v)) || "";
+
+function fmt(ent, campo, reg) {
+  const d = S.entidades[ent].campos[campo];
+  const v = reg[campo];
+  if (v === null || v === undefined || v === "") return `<span class="suave">—</span>`;
+  if (!d) {  // calculado
+    if (campo === "dias_atraso") return v > 0 ? `<span class="chip ${v > 60 ? "vermelho" : v > 30 ? "amarelo" : ""}">${v} dias</span>` : "0";
+    return esc(v);
+  }
+  if (d.tipo === "moeda") return brl(v);
+  if (d.tipo === "numero") return num(v);
+  if (d.tipo === "data") return dataBR(v);
+  if (d.tipo === "booleano") return v ? "Sim" : "Não";
+  if (d.tipo === "ref") return `${esc(reg[campo + "_nome"] || v)} <span class="id">${esc(v)}</span>`;
+  if (d.tipo === "opcao" && (campo === "status" || campo === "prioridade" || campo === "estagio")) return `<span class="chip ${corDe(v)}">${esc(v)}</span>`;
+  if (d.tipo === "texto_longo") return `<span class="trunc">${esc(v)}</span>`;
+  return esc(v);
+}
+const ROTULOS = {imovel_id: "Imóvel", inicio: "Início", renovacao_automatica: "Renovação automática", indice_reajuste: "Índice de reajuste", numero: "Número",
+  descricao: "Descrição", observacoes: "Observações", proximos_passos: "Próximos passos", proximo_passo: "Próximo passo", data_proximo_passo: "Data do próximo passo",
+  ultimo_contato: "Último contato", endereco: "Endereço", conteudo: "Conteúdo", area: "Área", titulo: "Título", competencia: "Competência", cnpj: "CNPJ",
+  empresa_id: "Empresa", oportunidade_id: "Oportunidade", contrato_id: "Contrato", colaborador_id: "Colaborador", responsavel_id: "Responsável",
+  estagio: "Estágio", aberto_em: "Aberto em", recebida_em: "Recebida em", enviada_em: "Enviada em", relacionado_a: "Relacionado a", assinado_em: "Assinado em",
+  dias_atraso: "Atraso", dias_para_vencimento: "Dias para o vencimento", dias_ate: "Dias até", hora: "Hora", corpo: "Texto", para: "Para"};
+const rotulo = (ent, c) => (S.entidades[ent].campos[c] || {}).rotulo || ROTULOS[c] || c.replace(/_id$/, "").replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase());
+
+async function api(url, corpo) {
+  const r = await fetch(url, corpo ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpo)} : {});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.detail || "Erro"), {status: r.status});
+  return j;
+}
+
+/* ---------------- navegação */
+function desenharNav() {
+  const grupos = {};
+  Object.entries(S.entidades).forEach(([k, e]) => (grupos[e.grupo] = grupos[e.grupo] || []).push([k, e]));
+  const rota = location.hash.slice(1) || "inicio";
+  const link = (r, nome, extra = "") => `<a href="#${r}" ${rota === r || rota.startsWith(r + "/") ? 'aria-current="page"' : ""}>${nome}${extra}</a>`;
+  $("#nav").innerHTML = `<div class="grupo-nav">${link("inicio", "Início")}</div>` +
+    Object.entries(grupos).map(([g, ents]) => `<div class="grupo-nav"><span class="rotulo">${esc(g)}</span>${ents.map(([k, e]) => link("m/" + k, esc(e.nome), `<span class="n">${e.total}</span>`)).join("")}</div>`).join("") +
+    `<div class="grupo-nav"><span class="rotulo">Governança</span>${link("aprovacoes", "Aprovações", est.pendentes ? `<span class="badge">${est.pendentes}</span>` : "")}${link("governanca", "Políticas")}${link("auditoria", "Auditoria")}${link("conectar", "Conectar")}</div>`;
+}
+
+async function rotear(forcar) {
+  const rota = location.hash.slice(1) || "inicio";
+  const [base, ent, id] = rota.split("/");
+  const chave = base === "m" ? "m/" + ent : base;
+  desenharNav();
+  if (chave !== vistaAtual || forcar) {
+    vistaAtual = chave;
+    if (base === "m" && S.entidades[ent]) await vistaModulo(ent, forcar);
+    else if (base === "aprovacoes") await vistaAprovacoes();
+    else if (base === "governanca") vistaGovernanca();
+    else if (base === "auditoria") await vistaAuditoria();
+    else if (base === "conectar") vistaConectar();
+    else await vistaInicio();
+  }
+  if (base === "m" && id) abrirDetalhe(ent, id); else fecharDetalhe(false);
+}
+
+/* ---------------- início */
+async function vistaInicio() {
+  const [dem, chm, cob, ctr, apr] = await Promise.all([
+    api("/api/registros/demandas"), api("/api/registros/chamados"), api("/api/registros/cobrancas"), api("/api/registros/contratos"), api("/api/aprovacoes?status=pendente"),
+  ]);
+  const novas = dem.registros.filter((d) => d.status === "Nova").length;
+  const chUrg = chm.registros.filter((c) => c.status !== "Concluído" && ["Urgente", "Alta"].includes(c.prioridade)).length;
+  const atr = cob.registros.filter((c) => c.dias_atraso > 0);
+  const vencendo = ctr.registros.filter((c) => c.status !== "Encerrado" && c.dias_para_vencimento >= 0 && c.dias_para_vencimento <= 180).length;
+  $("#conteudo").innerHTML = `<span class="rotulo">Visão geral · ${dataBR(est.hoje)}</span><h1>Colliers Hub</h1>
+    <p class="suave" style="max-width:72ch;margin:6px 0 0">Uma plataforma simulada com CRM, carteira de imóveis e contratos, cobrança, manutenção, caixa de entrada, agenda e base de conhecimento. Os agentes leem, criam, alteram e excluem registros pelo MCP; o que é sensível para na fila de aprovação.</p>
+    <div class="kpis">
+      <a href="#aprovacoes" class="${apr.length ? "alerta" : ""}"><span class="rotulo">Aguardando aprovação</span><span class="kpi">${apr.length}</span><small>pedidos dos agentes</small></a>
+      <a href="#m/demandas"><span class="rotulo">Caixa de entrada</span><span class="kpi">${novas}</span><small>demandas novas sem triagem</small></a>
+      <a href="#m/chamados" class="${chUrg ? "alerta" : ""}"><span class="rotulo">Chamados</span><span class="kpi">${chUrg}</span><small>urgentes ou altos em aberto</small></a>
+      <a href="#m/cobrancas"><span class="rotulo">Inadimplência</span><span class="kpi">${brl(atr.reduce((s, c) => s + c.valor, 0))}</span><small>${atr.length} cobranças em atraso</small></a>
+      <a href="#m/contratos"><span class="rotulo">Contratos</span><span class="kpi">${vencendo}</span><small>vencem em até 180 dias (cadastro)</small></a>
+    </div>
+    <h2>Como a plataforma decide</h2>
+    <div class="passos-hub">
+      <div><b>Livre</b>O agente faz e a mudança aparece na hora. Ex.: registrar uma interação, criar um alerta, triar uma demanda.</div>
+      <div><b>Com aprovação</b>O pedido vai para a fila e nada muda até um humano aprovar com o token. Ex.: enviar e-mail, encaminhar oportunidade, alterar contrato.</div>
+      <div><b>Bloqueado</b>O servidor recusa, não importa o que o modelo peça. Ex.: excluir contrato, alterar colaboradores.</div>
+      <div><b>Campo sensível</b>Mesmo num módulo livre, mudar certos campos pede aprovação. Ex.: responsável da oportunidade, valor da cobrança.</div>
+    </div>`;
+}
+
+/* ---------------- módulo */
+let buscaModulo = {};
+async function vistaModulo(ent, manterBusca) {
+  const e = S.entidades[ent];
+  const busca = buscaModulo[ent] || "";
+  const dados = await api(`/api/registros/${ent}` + (busca ? `?busca=${encodeURIComponent(busca)}` : ""));
+  const antes = cacheIds[ent] || {};
+  const agora = {};
+  dados.registros.forEach((r) => (agora[r.id] = r.atualizado_em));
+  const pol = (op) => `<span class="pol ${e.politica[op]}">${OPS[op]}: <b>${MODO_NOME[e.politica[op]]}</b></span>`;
+  const sens = e.sensiveis.length ? `<span class="pol aprovacao">Sensíveis: <b>${e.sensiveis.join(", ")}</b></span>` : "";
+  const cols = [...e.colunas];
+  if (e.virtuais.includes("dias_atraso")) cols.push("dias_atraso");
+  const focoBusca = document.activeElement && document.activeElement.id === "buscaMod";
+  $("#conteudo").innerHTML = `<div class="cab-modulo"><div><span class="rotulo">${esc(e.grupo)}</span><h1>${esc(e.nome)}</h1><p>${esc(e.descricao)}</p>
+      <div class="politica">${pol("criar")}${pol("atualizar")}${pol("excluir")}${sens}</div></div>
+      <div class="busca-lista"><input id="buscaMod" type="search" placeholder="Buscar em ${esc(e.nome.toLowerCase())}" value="${esc(busca)}" aria-label="Buscar"></div></div>` +
+    (dados.registros.length ? `<div class="rolagem"><table><thead><tr><th>Id</th>${cols.map((c) => `<th>${esc(rotulo(ent, c))}</th>`).join("")}</tr></thead><tbody>
+      ${dados.registros.map((r) => `<tr class="clicavel ${cacheIds[ent] && antes[r.id] !== r.atualizado_em ? "mudou" : ""}" data-abrir="${ent}/${r.id}"><td><span class="id">${esc(r.id)}</span></td>${cols.map((c) => `<td>${fmt(ent, c, r)}</td>`).join("")}</tr>`).join("")}
+      </tbody></table></div><p class="suave" style="margin-top:10px">${dados.total} registro(s). Clique numa linha para ver tudo.</p>`
+      : `<p class="vazio">Nenhum registro${busca ? " com essa busca" : ""}.</p>`);
+  cacheIds[ent] = agora;
+  if (focoBusca) { const i = $("#buscaMod"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+}
+
+/* ---------------- detalhe */
+let detalheAberto = "";
+async function abrirDetalhe(ent, id) {
+  detalheAberto = ent + "/" + id;
+  let d;
+  try { d = await api(`/api/registro/${ent}/${id}`); } catch (e) {
+    $("#detalhe").innerHTML = `<div class="detalhe-cab"><h2>${esc(id)}</h2><button class="secundario" data-fechar>Fechar</button></div><p class="vazio">Este registro não existe mais.</p>`;
+    $("#detalhe").hidden = false; $("#fundo").hidden = false; return;
+  }
+  const e = S.entidades[ent], r = d.registro;
+  const campos = Object.keys(e.campos).map((c) => {
+    const def = e.campos[c];
+    const v = r[c];
+    let html = def.tipo === "texto_longo" && v ? `<pre class="texto-longo">${esc(v)}</pre>` : fmt(ent, c, r).replace('class="trunc"', "");
+    if (def.tipo === "ref" && v) html = `<a href="#m/${def.ref}/${esc(v)}">${esc(r[c + "_nome"] || v)}</a> <span class="id">${esc(v)}</span>`;
+    return `<dt>${esc(rotulo(ent, c))}${e.sensiveis.includes(c) ? ' <span class="chip amarelo" title="Alterar pede aprovação">sensível</span>' : ""}</dt><dd>${html}</dd>`;
+  }).join("") + e.virtuais.map((c) => `<dt>${esc(rotulo(ent, c))}</dt><dd class="calc">${esc(r[c])} (calculado)</dd>`).join("");
+  const rel = Object.entries(d.relacionados).map(([k, lista]) => `<h3 style="margin-top:12px">${esc(S.entidades[k].nome)}</h3><div class="rel">${lista.map((x) => `<a href="#m/${k}/${x.id}"><span class="id">${x.id}</span> ${esc(x.titulo)}</a>`).join("")}</div>`).join("");
+  const hist = d.historico.map((h) => `<div class="hist"><b>${esc(OPS[h.operacao] || h.operacao)}</b> por ${esc(h.autor)} · ${esc(h.origem)} · ${esc(h.quando.slice(0, 16))}${h.aprovacao_id ? ` · aprovação #${h.aprovacao_id}` : ""}</div>`).join("");
+  $("#detalhe").innerHTML = `<div class="detalhe-cab"><div><span class="rotulo">${esc(e.nome)}</span><h2 style="margin-top:4px"><span class="id" style="font-size:16px">${esc(r.id)}</span> ${esc(r[e.titulo] || "")}</h2>
+      <small>Atualizado por ${esc(r.atualizado_por)} em ${esc((r.atualizado_em || "").slice(0, 16))}</small></div><button class="secundario" data-fechar>Fechar</button></div>
+    ${d.aprovacoes_pendentes.length ? `<p class="just" style="background:#fff1d0;padding:8px 12px;border-radius:8px">Pedidos pendentes sobre este registro: ${d.aprovacoes_pendentes.map((a) => `<a href="#aprovacoes">#${a}</a>`).join(", ")}</p>` : ""}
+    <dl class="campos">${campos}</dl>${rel ? `<span class="rotulo">Ligados a este registro</span>${rel}` : ""}
+    ${hist ? `<span class="rotulo">Histórico de alterações</span><div style="margin-top:8px">${hist}</div>` : ""}`;
+  $("#detalhe").hidden = false; $("#fundo").hidden = false;
+}
+function fecharDetalhe(mudarHash = true) {
+  if ($("#detalhe").hidden) return;
+  $("#detalhe").hidden = true; $("#fundo").hidden = true; detalheAberto = "";
+  if (mudarHash) { const [b, ent] = (location.hash.slice(1) || "").split("/"); if (b === "m") history.replaceState(null, "", "#m/" + ent); }
+}
+
+/* ---------------- aprovações */
+function tabelaDiff(a) {
+  const ent = a.entidade;
+  const nm = (v) => v !== null && v !== undefined && a.nomes && a.nomes[v] ? `${a.nomes[v]} (${v})` : v;
+  if (a.operacao === "atualizar" || a.operacao === "enviar") {
+    return `<table class="diff"><thead><tr><th>Campo</th><th>Hoje</th><th>Depois</th></tr></thead><tbody>${Object.keys(a.dados || {}).map((c) =>
+      `<tr><td>${esc(rotulo(ent, c))}</td><td class="antes">${esc(nm((a.antes || {})[c]) ?? "—")}</td><td class="depois">${esc(nm(a.dados[c]) ?? "—")}</td></tr>`).join("")}</tbody></table>`;
+  }
+  if (a.operacao === "criar") {
+    return `<table class="diff"><tbody>${Object.entries(a.dados || {}).filter(([, v]) => v !== null && v !== "").map(([c, v]) =>
+      `<tr><td style="width:180px">${esc(rotulo(ent, c))}</td><td class="depois" style="white-space:pre-wrap">${esc(nm(v))}</td></tr>`).join("")}</tbody></table>`;
+  }
+  if (a.operacao === "excluir") {
+    return `<p class="meta">Registro que será apagado:</p><table class="diff"><tbody>${Object.entries(a.antes || {}).filter(([k, v]) => k !== "id" && v !== null && v !== "" && !k.startsWith("_")).slice(0, 12).map(([c, v]) =>
+      `<tr><td style="width:180px">${esc(rotulo(ent, c))}</td><td class="antes">${esc(String(nm(v)).slice(0, 300))}</td></tr>`).join("")}</tbody></table>`;
+  }
+  return "";
+}
+let comunicacoesCache = {};
+async function vistaAprovacoes() {
+  const lista = await api("/api/aprovacoes" + (subAprov === "pendente" ? "?status=pendente" : ""));
+  const mostrar = subAprov === "pendente" ? lista : lista.filter((a) => a.status !== "pendente");
+  for (const a of mostrar.filter((x) => x.operacao === "enviar" && x.registro_id && !comunicacoesCache[x.registro_id])) {
+    try { comunicacoesCache[a.registro_id] = (await api(`/api/registro/comunicacoes/${a.registro_id}`)).registro; } catch (_) {}
+  }
+  const quem = ler("aprovador");
+  $("#conteudo").innerHTML = `<span class="rotulo">Human in the loop</span><h1>Aprovações</h1>
+    <p class="suave" style="max-width:72ch;margin:6px 0 12px">Tudo o que os agentes pediram e a política não deixa fazer sozinho. Aprovar executa a operação exatamente como pedida; rejeitar não muda nada, e o agente vê o seu comentário em <code>consultar_aprovacao</code>. É preciso o token de aprovação.</p>
+    <div class="subabas"><button data-sub="pendente" aria-pressed="${subAprov === "pendente"}">Pendentes</button><button data-sub="decididas" aria-pressed="${subAprov !== "pendente"}">Decididas</button>
+      <span class="suave" style="align-self:center;margin-left:8px">Aprovando como: <b>${esc(quem || "não definido")}</b> <a href="#" id="trocarAprovador">trocar</a></span></div>` +
+    (mostrar.length ? mostrar.map((a) => {
+      const com = a.operacao === "enviar" ? comunicacoesCache[a.registro_id] : null;
+      return `<article class="aprov ${a.status === "pendente" ? "pendente" : ""}">
+      <div class="aprov-cab"><div><span class="rotulo">#${a.id} · ${esc(OPS[a.operacao] || a.operacao)} · ${esc(a.entidade_nome)}</span>
+        <h3 style="margin-top:4px">${a.registro_id ? `<a href="#m/${a.entidade}/${a.registro_id}"><span class="id">${esc(a.registro_id)}</span></a> ` : ""}${esc(a.titulo || "")}</h3>
+        <div class="meta">Pedido por <b>${esc(a.autor)}</b> via ${esc(a.origem)} em ${esc(a.criado_em.slice(0, 16))} · motivo: ${esc(a.motivo_aprovacao)}</div></div>
+        <span class="chip ${corDe(a.status)}">${esc(a.status)}</span></div>
+      ${a.justificativa ? `<div class="just"><b>Justificativa do agente:</b> ${esc(a.justificativa)}</div>` : ""}
+      ${com ? `<div><div class="meta">Para: <b>${esc(com.para)}</b> · ${esc(com.tipo)} · Assunto: <b>${esc(com.assunto)}</b></div><pre class="texto-longo">${esc(com.corpo)}</pre></div>` : tabelaDiff(a)}
+      ${a.status === "pendente" ? `<div class="decisao"><textarea data-comentario="${a.id}" placeholder="Comentário (opcional; o agente recebe)"></textarea>
+        <button data-decidir="${a.id}" data-aprovar="1">Aprovar e executar</button><button class="perigo" data-decidir="${a.id}" data-aprovar="0">Rejeitar</button></div>`
+        : `<div class="meta">${esc(a.status === "aprovada" ? "Aprovada" : a.status === "falhou" ? "Aprovada, mas falhou" : "Rejeitada")} por <b>${esc(a.decidido_por)}</b> em ${esc((a.decidido_em || "").slice(0, 16))}${a.comentario ? ` · “${esc(a.comentario)}”` : ""}</div>`}
+    </article>`;
+    }).join("") : `<p class="vazio">${subAprov === "pendente" ? "Nenhum pedido aguardando. Quando um agente pedir algo sensível, aparece aqui." : "Nada decidido ainda."}</p>`);
+}
+
+/* ---------------- governança */
+function vistaGovernanca() {
+  const sel = (ent, op, v) => `<select class="${v}" data-pol="${ent}" data-op="${op}" aria-label="${ent} ${op}">${S.modos.map((m) => `<option value="${m}" ${m === v ? "selected" : ""}>${MODO_NOME[m]}</option>`).join("")}</select>`;
+  const sens = (ent, e) => {
+    const lista = Object.keys(e.campos).filter((c) => !e.campos[c].sistema);
+    return `<div class="sens" style="display:inline-flex">${lista.map((c) => `<label><input type="checkbox" data-sens="${ent}" value="${c}" ${e.sensiveis.includes(c) ? "checked" : ""}>${esc(c)}</label>`).join("")}</div>`;
+  };
+  $("#conteudo").innerHTML = `<span class="rotulo">Governança</span><h1>Políticas da plataforma</h1>
+    <p class="suave" style="max-width:74ch;margin:6px 0 16px">O servidor aplica estas regras em toda chamada, venha de onde vier. Mude ao vivo para subir ou descer um degrau da escada de agência. Precisa do token de administrador.</p>
+    <div class="rolagem gov"><table><thead><tr><th>Módulo</th><th>Criar</th><th>Alterar</th><th>Excluir</th></tr></thead><tbody>
+    ${Object.entries(S.entidades).map(([k, e]) => `<tr><td style="border:0;padding-bottom:2px"><b>${esc(e.nome)}</b> <small>${esc(e.grupo)}</small></td><td style="border:0;padding-bottom:2px">${sel(k, "criar", e.politica.criar)}</td><td style="border:0;padding-bottom:2px">${sel(k, "atualizar", e.politica.atualizar)}</td><td style="border:0;padding-bottom:2px">${sel(k, "excluir", e.politica.excluir)}</td></tr>
+      <tr><td colspan="4" style="padding-top:4px"><small style="margin-right:6px">Sensíveis (alterar pede aprovação):</small>${sens(k, e)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <h2 style="margin:24px 0 8px">Ações</h2>
+    <div class="gov"><table><tbody><tr><td><b>enviar_comunicacao</b><br><small>E-mails, cartas e notificações para fora da Colliers</small></td>
+      <td><select class="${S.acoes.enviar_comunicacao}" data-acao="enviar_comunicacao">${S.modos.map((m) => `<option value="${m}" ${m === S.acoes.enviar_comunicacao ? "selected" : ""}>${MODO_NOME[m]}</option>`).join("")}</select></td></tr></tbody></table></div>
+    <p style="margin-top:20px"><button class="secundario" id="restaurar">Restaurar o padrão</button></p>`;
+}
+
+/* ---------------- auditoria */
+async function vistaAuditoria() {
+  const lista = await api("/api/auditoria");
+  const resumo = (a) => {
+    const antes = a.antes ? JSON.parse(a.antes) : {}, depois = a.depois ? JSON.parse(a.depois) : {};
+    if (a.operacao === "criar") return "registro criado";
+    if (a.operacao === "excluir") return "registro excluído";
+    return Object.keys(depois).filter((k) => JSON.stringify(antes[k]) !== JSON.stringify(depois[k])).map((k) => `${k}: ${String(antes[k] ?? "—").slice(0, 40)} → ${String(depois[k] ?? "—").slice(0, 40)}`).join("; ");
+  };
+  $("#conteudo").innerHTML = `<span class="rotulo">Governança</span><h1>Auditoria</h1>
+    <p class="suave" style="margin:6px 0 14px">Toda escrita que de fato aconteceu, com autor, origem e, quando houve, o número da aprovação.</p>` +
+    (lista.length ? `<div class="rolagem"><table><thead><tr><th>Quando</th><th>Operação</th><th>Registro</th><th>Autor</th><th>Origem</th><th>Aprovação</th><th>Mudança</th></tr></thead><tbody>
+    ${lista.map((a) => `<tr><td>${esc(a.quando.slice(5, 16))}</td><td>${esc(OPS[a.operacao] || a.operacao)}</td><td><a href="#m/${a.entidade}/${a.registro_id}"><span class="id">${esc(a.registro_id)}</span></a></td>
+      <td>${esc(a.autor)}</td><td>${esc(a.origem)}</td><td>${a.aprovacao_id ? "#" + a.aprovacao_id : "—"}</td><td><span class="trunc">${esc(resumo(a))}</span></td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="vazio">Nenhuma escrita ainda.</p>`);
+}
+
+/* ---------------- conectar */
+function vistaConectar() {
+  const ferr = [["descrever_plataforma", "leitura", "Módulos, campos, opções e políticas"], ["listar", "leitura", "Registros de um módulo, com filtros e busca"], ["ler", "leitura", "Um registro completo, com os ligados a ele"],
+    ["buscar", "leitura", "Texto em todos os módulos"], ["consultar_aprovacao", "leitura", "Situação de um pedido"], ["criar", "escrita", "Cria um registro"], ["atualizar", "escrita", "Altera campos"],
+    ["excluir", "escrita · destrutiva", "Exclui um registro"], ["enviar_comunicacao", "escrita", "Envia um rascunho para fora"]];
+  $("#conteudo").innerHTML = `<span class="rotulo">Conectar</span><h1>Ligar um agente ao Hub</h1>
+    <h3 style="margin:18px 0 6px">Endereço MCP (sem autenticação)</h3><p><code style="background:var(--azul-palido);padding:10px 14px;border-radius:8px;display:inline-block;word-break:break-all">${esc(est.mcp_url)}</code></p>
+    <p><b>Claude:</b> Configurações › Conectores › Adicionar conector personalizado.<br><b>ChatGPT:</b> modo desenvolvedor › criar conector com o endereço. Em contas corporativas, o administrador precisa liberar.<br>
+    <b>Código:</b> qualquer cliente MCP (o notebook usa o SDK Python).<br><b>Sem conector:</b> use o <a href="/chat" target="_blank">chat do lab</a>, que traz modelos de agente prontos.</p>
+    <h3 style="margin:18px 0 6px">As 9 ferramentas</h3><div class="rolagem"><table><tbody>${ferr.map((f) => `<tr><td><code>${f[0]}</code></td><td><span class="tag ${f[1].startsWith("leitura") ? "leitura" : "escrita"}">${f[1]}</span></td><td>${f[2]}</td></tr>`).join("")}</tbody></table></div>
+    <h3 style="margin:22px 0 6px">Instrutor</h3><p><button class="perigo" id="reiniciar">Reiniciar dados</button> <span class="suave">Volta todos os módulos ao ponto de partida (datas a partir de hoje). As políticas ficam como estão.</span></p>`;
+}
+
+/* ---------------- feed e atualização */
 async function puxarFeed() {
   try {
-    const r = await fetch(`/api/feed?apos=${ultimoEvento}`);
-    const j = await r.json();
+    const j = await api(`/api/feed?apos=${ultimoEvento}`);
     const lista = $("#eventos");
     if (j.ultimo && j.ultimo < ultimoEvento) { lista.innerHTML = ""; ultimoEvento = 0; return puxarFeed(); }
     j.eventos.reverse().forEach((e) => {
       const li = document.createElement("li");
-      li.className = `evento ${e.tipo}` + (ultimoEvento ? " novo" : "");
-      li.innerHTML = `<time>${esc(e.quando.slice(11, 19))}</time>
-        <div><p class="acao"><span class="tag ${esc(e.tipo)}">${esc(nomesTipo[e.tipo] || e.tipo)}</span> <b>${esc(e.ferramenta)}</b></p>
-        <p>${esc(e.resumo)}</p>
-        <p class="quem">${e.autor ? esc(e.autor) + " · " : ""}${esc(e.origem)}</p></div>`;
+      li.className = "evento" + (ultimoEvento ? " novo" : "");
+      const alvo = e.entidade && e.registro_id ? ` <a href="#m/${esc(e.entidade)}/${esc(e.registro_id)}" class="id">${esc(e.registro_id)}</a>` : "";
+      li.innerHTML = `<time>${esc(e.quando.slice(11, 19))}</time><div><p class="acao"><span class="tag ${esc(e.tipo)}">${esc(NOMES_TIPO[e.tipo] || e.tipo)}</span> <b>${esc(e.ferramenta)}</b>${alvo}</p>
+        <p>${esc(e.resumo)}</p><p class="quem">${e.autor ? esc(e.autor) + " · " : ""}${esc(e.origem)}</p></div>`;
       lista.prepend(li);
     });
-    while (lista.children.length > 120) lista.lastChild.remove();
+    while (lista.children.length > 150) lista.lastChild.remove();
     ultimoEvento = j.ultimo || ultimoEvento;
   } catch (_) {}
 }
 
-async function puxarDados() {
+async function tique() {
   try {
-    const r = await fetch(`/api/dados?versao=${versao}`);
-    const j = await r.json();
-    if (j.inalterado) return;
-    dados = j; versao = j.versao;
-    $("#mcpUrl").textContent = j.mcp_url;
-    const pend = j.encaminhamentos.filter((e) => e.status === "pendente").length + j.cartas.filter((c) => c.status === "rascunho").length;
-    $("#nPend").hidden = !pend; $("#nPend").textContent = pend;
-    desenhar();
+    const e = await api("/api/estado");
+    const mudou = e.versao !== est.versao;
+    est = e;
+    $("#mcpUrl").textContent = e.mcp_url;
+    if (mudou) {
+      S = await api("/api/schema");
+      const digitando = document.activeElement && document.activeElement.matches("textarea, select");
+      if (!digitando) await rotear(true);
+      if (detalheAberto) { const [ent, id] = detalheAberto.split("/"); abrirDetalhe(ent, id); }
+    }
   } catch (_) {}
+  puxarFeed();
 }
 
-function tabela(colunas, linhas, vazio) {
-  if (!linhas.length) return `<p class="vazio">${vazio}</p>`;
-  return `<div class="rolagem"><table><thead><tr>${colunas.map((c) => `<th>${c[0]}</th>`).join("")}</tr></thead>
-    <tbody>${linhas.map((l) => `<tr>${colunas.map((c) => `<td>${c[1](l)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-}
-
-function desenhar() {
-  if (!dados) return;
-  const p = $("#painel");
-  if (aba === "contratos") {
-    p.innerHTML = `<p class="intro">Contratos de locação. O texto completo de cada um só aparece para quem chama <code>ler_contrato</code>.</p>` +
-      tabela([
-        ["Contrato", (c) => `<b>${esc(c.id)}</b>`],
-        ["Cliente e imóvel", (c) => `${esc(c.cliente)}<br><small>${esc(c.imovel)}, ${esc(c.cidade)}</small>`],
-        ["Vencimento", (c) => { const d = diasAte(c.vencimento); return `${dataBR(c.vencimento)}<br><small class="${d < 150 ? "urgente" : ""}">em ${d} dias</small>`; }],
-        ["Aviso prévio", (c) => `${c.aviso_previo_dias} dias`],
-        ["Reajuste", (c) => `${esc(c.indice_reajuste)}, mês ${c.mes_reajuste}`],
-        ["Aluguel", (c) => brl(c.valor_mensal)],
-      ], dados.contratos, "Nenhum contrato.");
-  } else if (aba === "alertas") {
-    p.innerHTML = `<p class="intro">Alertas criados pelos agentes com <code>criar_alerta_data_critica</code>.</p>` +
-      tabela([
-        ["Data", (a) => `<b>${dataBR(a.data)}</b>`], ["Contrato", (a) => esc(a.contrato_id)], ["Tipo", (a) => esc(a.tipo)],
-        ["Descrição", (a) => esc(a.descricao)], ["Criado por", (a) => esc(a.autor)],
-      ], dados.alertas, "Nenhum alerta ainda. Peça a um agente para ler um contrato e criar as datas críticas.");
-  } else if (aba === "oportunidades") {
-    const inter = (id) => dados.interacoes.filter((i) => i.oportunidade_id === id);
-    p.innerHTML = `<p class="intro">Funil de oportunidades. Interações registradas pelos agentes aparecem embaixo de cada uma.</p>` +
-      tabela([
-        ["Oportunidade", (o) => `<b>${esc(o.id)}</b><br>${esc(o.empresa)}`],
-        ["Linha de serviço", (o) => esc(o.linha_servico)], ["Estágio", (o) => `<span class="estagio">${esc(o.estagio)}</span>`],
-        ["Valor estimado", (o) => brl(o.valor_estimado)], ["Responsável", (o) => esc(o.responsavel)],
-        ["Interações", (o) => inter(o.id).map((i) => `<p class="nota"><b>${esc(i.autor)}</b>: ${esc(i.resumo)}${i.proximos_passos ? `<br><small>Próximos passos: ${esc(i.proximos_passos)}</small>` : ""}</p>`).join("") || "<small>nenhuma</small>"],
-      ], dados.oportunidades, "Nenhuma oportunidade.");
-  } else if (aba === "inadimplencia") {
-    p.innerHTML = `<p class="intro">Inquilinos com aluguel em atraso nos empreendimentos administrados.</p>` +
-      tabela([
-        ["Inquilino", (i) => `<b>${esc(i.id)}</b><br>${esc(i.inquilino)}`], ["Empreendimento", (i) => esc(i.empreendimento)],
-        ["Atraso", (i) => `<span class="${i.dias_atraso > 60 ? "urgente" : ""}">${i.dias_atraso} dias</span>`],
-        ["Em aberto", (i) => brl(i.valor_em_aberto)], ["Último contato", (i) => dataBR(i.ultimo_contato)],
-      ], dados.inadimplencia, "Ninguém em atraso.");
-  } else if (aba === "aprovacoes") {
-    const enc = dados.encaminhamentos, cartas = dados.cartas;
-    const botoes = (tipo, id) => `<div class="decisao"><button data-decidir="${tipo}" data-id="${id}" data-aprovar="1">Aprovar</button><button class="secundario" data-decidir="${tipo}" data-id="${id}" data-aprovar="0">Rejeitar</button></div>`;
-    p.innerHTML = `<p class="intro">Escritas que o agente não pode concluir sozinho. Só o instrutor aprova, com o token de instrutor.</p>
-      <h3>Encaminhamentos de oportunidades</h3>` +
-      tabela([
-        ["Pedido", (e) => `<b>${esc(e.oportunidade_id)}</b> para ${esc(e.time_destino)}<br><small>${esc(e.justificativa)}</small>`],
-        ["Pedido por", (e) => esc(e.autor)],
-        ["Situação", (e) => e.status === "pendente" ? botoes("encaminhamento", e.id) : `<span class="status ${esc(e.status)}">${esc(e.status)}</span>`],
-      ], enc, "Nenhum encaminhamento pedido.") +
-      `<h3>Cartas</h3>` +
-      tabela([
-        ["Carta", (c) => `<b>${c.tipo === "cobranca" ? "Cobrança" : "Reajuste"} · ${esc(c.referencia_id)}</b><details><summary>Ler o texto</summary><p class="carta">${esc(c.texto)}</p></details>`],
-        ["Escrita por", (c) => esc(c.autor)],
-        ["Situação", (c) => c.status === "rascunho" ? botoes("carta", c.id) : `<span class="status ${esc(c.status)}">${esc(c.status)}</span>`],
-      ], cartas, "Nenhuma carta em rascunho.");
-  } else if (aba === "conectar") {
-    p.innerHTML = `<div class="conectar">
-      <h3>1. No seu assistente</h3>
-      <p>Adicione um conector personalizado com este endereço, sem autenticação:</p>
-      <p><code class="grande">${esc(dados.mcp_url)}</code></p>
-      <p><b>ChatGPT:</b> ative o modo desenvolvedor e crie um app ou conector com o endereço acima. Em contas corporativas, o administrador precisa liberar antes.</p>
-      <p><b>Claude:</b> em Configurações, Conectores, adicione um conector personalizado com o endereço acima.</p>
-      <p>Se a sua conta não permitir conectores personalizados, use o chat do lab: ele usa exatamente as mesmas ferramentas.</p>
-      <h3>2. Pedidos para testar</h3>
-      <ul><li>Quais contratos vencem nos próximos 150 dias?</li>
-      <li>Leia o contrato C-101 e crie os alertas de renovação e de reajuste.</li>
-      <li>Registre no CRM uma reunião com a Nexo Farma sobre a renovação.</li>
-      <li>Rascunhe a carta de cobrança para o inquilino mais atrasado.</li>
-      <li>Encaminhe a OP-204 para o time certo.</li></ul>
-      <h3>Instrutor</h3>
-      <p><button id="reiniciar" class="secundario" type="button">Reiniciar dados</button> Apaga tudo o que foi escrito e volta ao ponto de partida.</p>
-    </div>`;
+/* ---------------- eventos */
+async function comToken(tipo, fn) {
+  const chave = tipo === "admin" ? "tokenAdmin" : "tokenAprovador";
+  let t = ler(chave);
+  if (!t) { t = prompt(tipo === "admin" ? "Token de administrador:" : "Token de aprovação:"); if (!t) return; guardar(chave, t); }
+  try { await fn(t); } catch (e) {
+    if (e.status === 403) { guardar(chave, ""); alert("Token inválido."); } else alert(e.message);
   }
-}
-
-function token() {
-  let t = sessionStorage.getItem("tokenInstrutor");
-  if (!t) { t = prompt("Token de instrutor:"); if (t) sessionStorage.setItem("tokenInstrutor", t); }
-  return t;
+  await tique();
 }
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-aba]");
-  if (t) {
-    aba = t.dataset.aba;
-    document.querySelectorAll("[data-aba]").forEach((b) => b.setAttribute("aria-selected", b === t));
-    desenhar();
-  }
+  const linha = ev.target.closest("[data-abrir]");
+  if (linha && !ev.target.closest("a")) { location.hash = "m/" + linha.dataset.abrir; return; }
+  if (ev.target.closest("[data-fechar]") || ev.target.id === "fundo") { fecharDetalhe(); return; }
+  const sub = ev.target.closest("[data-sub]");
+  if (sub) { subAprov = sub.dataset.sub; vistaAprovacoes(); return; }
+  if (ev.target.id === "trocarAprovador") { ev.preventDefault(); const n = prompt("Seu nome (aparece como quem decidiu):", ler("aprovador")); if (n) guardar("aprovador", n.trim()); vistaAprovacoes(); return; }
   const d = ev.target.closest("[data-decidir]");
   if (d) {
-    const tk = token(); if (!tk) return;
-    const r = await fetch("/api/decidir", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({tipo: d.dataset.decidir, id: d.dataset.id, aprovar: d.dataset.aprovar === "1", token: tk})});
-    if (r.status === 403) { sessionStorage.removeItem("tokenInstrutor"); alert("Token de instrutor inválido."); }
-    puxarDados(); puxarFeed();
+    if (!ler("aprovador")) { const n = prompt("Seu nome (aparece como quem decidiu):"); if (!n) return; guardar("aprovador", n.trim()); }
+    const comentario = (document.querySelector(`[data-comentario="${d.dataset.decidir}"]`) || {}).value || "";
+    d.disabled = true;
+    await comToken("aprovador", async (t) => {
+      const r = await api(`/api/aprovacoes/${d.dataset.decidir}`, {token: t, aprovar: d.dataset.aprovar === "1", comentario, por: ler("aprovador")});
+      if (r.status === "falhou") alert("A operação não pôde ser executada: " + r.erro);
+    });
+    vistaAtual = ""; rotear(true);
+    return;
   }
+  if (ev.target.id === "restaurar") { await comToken("admin", (t) => api("/api/politicas", {token: t, restaurar: true})); return; }
   if (ev.target.id === "reiniciar") {
-    if (!confirm("Apagar tudo o que os agentes escreveram?")) return;
-    const tk = token(); if (!tk) return;
-    const r = await fetch("/api/reiniciar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({token: tk})});
-    if (r.status === 403) { sessionStorage.removeItem("tokenInstrutor"); alert("Token de instrutor inválido."); return; }
-    $("#eventos").innerHTML = ""; ultimoEvento = 0; versao = 0; puxarDados(); puxarFeed();
+    if (!confirm("Apagar tudo o que os agentes fizeram e recriar os dados iniciais?")) return;
+    await comToken("admin", (t) => api("/api/reiniciar", {token: t}));
+    $("#eventos").innerHTML = ""; ultimoEvento = 0; cacheIds = {}; comunicacoesCache = {};
+    return;
   }
-  if (ev.target.id === "copiar") {
-    navigator.clipboard.writeText($("#mcpUrl").textContent);
-    ev.target.textContent = "Copiado"; setTimeout(() => (ev.target.textContent = "Copiar"), 1500);
-  }
+  if (ev.target.id === "copiar") { navigator.clipboard.writeText($("#mcpUrl").textContent); ev.target.textContent = "Copiado"; setTimeout(() => (ev.target.textContent = "Copiar"), 1500); }
 });
 
-puxarDados(); puxarFeed();
-setInterval(puxarFeed, 3000);
-setInterval(puxarDados, 5000);
+document.addEventListener("change", async (ev) => {
+  const t = ev.target;
+  if (t.dataset.pol) await comToken("admin", (tk) => api("/api/politicas", {token: tk, entidade: t.dataset.pol, operacao: t.dataset.op, modo: t.value}));
+  else if (t.dataset.acao) await comToken("admin", (tk) => api("/api/politicas", {token: tk, acao: t.dataset.acao, modo: t.value}));
+  else if (t.dataset.sens) {
+    const marcados = [...document.querySelectorAll(`[data-sens="${t.dataset.sens}"]:checked`)].map((x) => x.value);
+    await comToken("admin", (tk) => api("/api/politicas", {token: tk, entidade: t.dataset.sens, sensiveis: marcados}));
+  }
+  if (t.dataset.pol || t.dataset.acao || t.dataset.sens) { t.blur(); vistaAtual = ""; rotear(true); }
+});
+
+let tBusca;
+document.addEventListener("input", (ev) => {
+  if (ev.target.id !== "buscaMod") return;
+  const ent = (location.hash.slice(1) || "").split("/")[1];
+  buscaModulo[ent] = ev.target.value;
+  clearTimeout(tBusca); tBusca = setTimeout(() => vistaModulo(ent), 250);
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") fecharDetalhe(); });
+window.addEventListener("hashchange", () => rotear(false));
+
+(async () => {
+  est = await api("/api/estado");
+  S = await api("/api/schema");
+  $("#mcpUrl").textContent = est.mcp_url;
+  await rotear(true);
+  puxarFeed();
+  setInterval(tique, 3000);
+})();
 </script>
 </body>
 </html>

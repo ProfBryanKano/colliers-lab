@@ -1,9 +1,9 @@
-"""Colliers Lab: painel web + servidor MCP + chat do lab, num só serviço.
+"""Colliers Hub: plataforma simulada + servidor MCP + painel + chat, num só serviço.
 
 Rotas:
-  /            painel ao vivo (o que os agentes leem e escrevem)
-  /chat        chat do lab, para quem não puder conectar o próprio assistente
-  /mcp         endpoint MCP (Streamable HTTP) — o caminho muda com MCP_PATH
+  /            painel da plataforma (módulos, feed ao vivo, aprovações, governança)
+  /chat        chat do lab: um agente com as mesmas ferramentas MCP
+  /mcp         endpoint MCP (Streamable HTTP); o caminho muda com MCP_PATH
 """
 
 import json
@@ -12,7 +12,6 @@ import secrets
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from datetime import date
 from pathlib import Path
 
 import httpx
@@ -21,11 +20,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import db
-from .tools import mcp, origem
+from . import db, plataforma as p, seed
+from .schema import ENTIDADES, MODOS
+from .tools import mcp
 
 MCP_PATH = "/" + os.environ.get("MCP_PATH", "mcp").strip("/")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN") or secrets.token_urlsafe(8)
+APROVADOR_TOKEN = os.environ.get("APROVADOR_TOKEN") or ADMIN_TOKEN
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = os.environ.get("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 MODELOS = [m.strip() for m in os.environ.get(
@@ -46,18 +47,15 @@ mcp_app = mcp.streamable_http_app(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.semear()
+    seed.semear()
     if "ADMIN_TOKEN" not in os.environ:
-        print(f"[colliers-lab] ADMIN_TOKEN não definido. Token gerado para esta execução: {ADMIN_TOKEN}", flush=True)
+        print(f"[colliers-hub] ADMIN_TOKEN não definido. Token gerado para esta execução: {ADMIN_TOKEN}", flush=True)
     async with mcp.session_manager.run():
         yield
 
 
-app = FastAPI(title="Colliers Lab", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="Colliers Hub", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
-
-
-# ---------------------------------------------------------------- páginas
 
 
 @app.get("/")
@@ -84,69 +82,124 @@ def _url_mcp(request: Request) -> str:
     return f"{proto}://{host}{MCP_PATH}"
 
 
+def _token(valor, *aceitos) -> None:
+    if not valor or not any(secrets.compare_digest(str(valor), t) for t in aceitos):
+        raise HTTPException(status_code=403, detail="Token inválido.")
+
+
+def _erro(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except p.Erro as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/estado")
+def estado(request: Request):
+    return {"versao": db.estado["versao"], "ultimo_evento": db.estado["ultimo_evento"], "hoje": db.hoje().isoformat(),
+            "pendentes": len(db.aprovacoes("pendente")), "mcp_url": _url_mcp(request)}
+
+
+@app.get("/api/schema")
+def schema():
+    ents = {}
+    for nome, e in ENTIDADES.items():
+        ents[nome] = {"nome": e["nome"], "grupo": e["grupo"], "descricao": e["descricao"], "prefixo": e["prefixo"],
+                      "titulo": e["titulo"], "colunas": e["colunas"], "virtuais": e.get("virtuais", []),
+                      "campos": e["campos"], "politica": db.politicas[nome], "sensiveis": db.sensiveis[nome],
+                      "total": db.contar(nome)}
+    return {"entidades": ents, "acoes": db.acoes, "modos": MODOS}
+
+
+@app.get("/api/registros/{entidade}")
+def registros(entidade: str, busca: str | None = None):
+    return _erro(p.listar, entidade, None, busca, None, False, 200, 1)
+
+
+@app.get("/api/registro/{entidade}/{rid}")
+def registro(entidade: str, rid: str):
+    r = _erro(p.ler, entidade, rid)
+    r["historico"] = db.consultar("SELECT quando, operacao, autor, origem, aprovacao_id, antes, depois FROM auditoria "
+                                  "WHERE entidade = ? AND registro_id = ? ORDER BY id DESC LIMIT 30", (r["entidade"], r["registro"]["id"]))
+    return r
+
+
 @app.get("/api/feed")
 def feed(apos: int = 0):
-    eventos = db.consultar("SELECT * FROM eventos WHERE id > ? ORDER BY id DESC LIMIT 60", (apos,))
+    eventos = db.consultar("SELECT * FROM eventos WHERE id > ? ORDER BY id DESC LIMIT 80", (apos,))
     return {"ultimo": db.estado["ultimo_evento"], "eventos": eventos}
 
 
-@app.get("/api/dados")
-def dados(request: Request, versao: int = 0):
-    v = db.estado["versao_dados"]
-    if versao == v:
-        return {"versao": v, "inalterado": True}
-    return {
-        "versao": v,
-        "mcp_url": _url_mcp(request),
-        "contratos": db.consultar("SELECT id, cliente, imovel, cidade, tipo, area_m2, inicio, vencimento, valor_mensal, indice_reajuste, mes_reajuste, aviso_previo_dias FROM contratos ORDER BY vencimento"),
-        "alertas": db.consultar("SELECT * FROM alertas ORDER BY data"),
-        "oportunidades": db.consultar("SELECT * FROM oportunidades ORDER BY valor_estimado DESC"),
-        "interacoes": db.consultar("SELECT * FROM interacoes ORDER BY id DESC LIMIT 200"),
-        "inadimplencia": db.consultar("SELECT * FROM inadimplencia ORDER BY dias_atraso DESC"),
-        "cartas": db.consultar("SELECT * FROM cartas ORDER BY id DESC LIMIT 200"),
-        "encaminhamentos": db.consultar("SELECT * FROM encaminhamentos ORDER BY id DESC LIMIT 200"),
-    }
+@app.get("/api/aprovacoes")
+def lista_aprovacoes(status: str | None = None):
+    lista = db.aprovacoes(status)
+    for a in lista:
+        if a["registro_id"]:
+            reg = db.um(a["entidade"], a["registro_id"])
+            a["titulo"] = p.titulo(a["entidade"], reg) if reg else ""
+        else:
+            a["titulo"] = p.titulo(a["entidade"], a["dados"] if isinstance(a["dados"], dict) else {})
+        a["entidade_nome"] = ENTIDADES[a["entidade"]]["nome"]
+        nomes = {}
+        for bloco in (a["dados"], a["antes"]):
+            if isinstance(bloco, dict):
+                for campo, v in bloco.items():
+                    d = ENTIDADES[a["entidade"]]["campos"].get(campo, {})
+                    if d.get("tipo") == "ref" and v:
+                        alvo = db.um(d["ref"], v)
+                        nomes[v] = p.titulo(d["ref"], alvo) if alvo else v
+        a["nomes"] = nomes
+    return lista
 
 
-def _checar_token(token: str | None) -> None:
-    if not token or not secrets.compare_digest(token, ADMIN_TOKEN):
-        raise HTTPException(status_code=403, detail="Token de instrutor inválido.")
-
-
-@app.post("/api/decidir")
-async def decidir(request: Request):
+@app.post("/api/aprovacoes/{aid}")
+async def decidir(aid: int, request: Request):
     corpo = await request.json()
-    _checar_token(corpo.get("token"))
-    tipo, item, aprovar = corpo.get("tipo"), int(corpo.get("id", 0)), bool(corpo.get("aprovar"))
-    if tipo == "encaminhamento":
-        linha = db.consultar("SELECT * FROM encaminhamentos WHERE id = ? AND status = 'pendente'", (item,))
-        if not linha:
-            raise HTTPException(404, "Encaminhamento não está mais pendente.")
-        status = "aprovado" if aprovar else "rejeitado"
-        db.executar("UPDATE encaminhamentos SET status = ?, decidido_em = ? WHERE id = ?", (status, db.agora(), item))
-        if aprovar:
-            db.executar("UPDATE oportunidades SET responsavel = ?, atualizado_em = ? WHERE id = ?",
-                        (linha[0]["time_destino"], db.agora(), linha[0]["oportunidade_id"]))
-        db.registrar_evento("aprovacao_humana", "aprovacao", "Instrutor",
-                            f"Encaminhamento {item} de {linha[0]['oportunidade_id']} {status}", "Painel")
-    elif tipo == "carta":
-        linha = db.consultar("SELECT * FROM cartas WHERE id = ? AND status = 'rascunho'", (item,))
-        if not linha:
-            raise HTTPException(404, "Carta não está mais em rascunho.")
-        status = "enviada" if aprovar else "descartada"
-        db.executar("UPDATE cartas SET status = ?, decidido_em = ? WHERE id = ?", (status, db.agora(), item))
-        db.registrar_evento("aprovacao_humana", "aprovacao", "Instrutor",
-                            f"Carta {item} para {linha[0]['referencia_id']} {status}", "Painel")
+    _token(corpo.get("token"), APROVADOR_TOKEN, ADMIN_TOKEN)
+    por = (corpo.get("por") or "Aprovador").strip()[:60]
+    return _erro(p.decidir, aid, bool(corpo.get("aprovar")), por, (corpo.get("comentario") or "").strip()[:500])
+
+
+@app.get("/api/auditoria")
+def auditoria(limite: int = 150):
+    return db.consultar("SELECT * FROM auditoria ORDER BY id DESC LIMIT ?", (min(limite, 500),))
+
+
+@app.post("/api/politicas")
+async def politicas(request: Request):
+    c = await request.json()
+    _token(c.get("token"), ADMIN_TOKEN)
+    if c.get("restaurar"):
+        db.restaurar_politicas()
+        msg = "Políticas restauradas ao padrão."
+    elif c.get("acao"):
+        if c["acao"] not in db.acoes or c.get("modo") not in MODOS:
+            raise HTTPException(400, "Ação ou modo inválido.")
+        db.acoes[c["acao"]] = c["modo"]
+        msg = f"Ação {c['acao']}: {c['modo'].replace('aprovacao', 'com aprovação')}."
+    elif "sensiveis" in c:
+        ent = c.get("entidade")
+        if ent not in ENTIDADES or not all(x in ENTIDADES[ent]["campos"] for x in c["sensiveis"]):
+            raise HTTPException(400, "Entidade ou campos inválidos.")
+        db.sensiveis[ent] = list(c["sensiveis"])
+        msg = f"Campos sensíveis de {ent}: {', '.join(c['sensiveis']) or 'nenhum'}."
     else:
-        raise HTTPException(400, "tipo deve ser encaminhamento ou carta.")
-    return {"ok": True, "status": status}
+        ent, op, modo = c.get("entidade"), c.get("operacao"), c.get("modo")
+        if ent not in ENTIDADES or op not in ("criar", "atualizar", "excluir") or modo not in MODOS:
+            raise HTTPException(400, "Entidade, operação ou modo inválido.")
+        db.politicas[ent][op] = modo
+        nomes = {"livre": "livre", "aprovacao": "com aprovação", "bloqueado": "bloqueado"}
+        msg = f"{ENTIDADES[ent]['nome']}: {op} agora é {nomes[modo]}."
+    db.tocar()
+    db.evento("governanca", "sistema", "Administrador", msg, "Painel")
+    return {"ok": True, "mensagem": msg}
 
 
 @app.post("/api/reiniciar")
 async def reiniciar(request: Request):
-    corpo = await request.json()
-    _checar_token(corpo.get("token"))
-    db.semear()
+    c = await request.json()
+    _token(c.get("token"), ADMIN_TOKEN)
+    seed.semear()
     return {"ok": True}
 
 
@@ -167,7 +220,8 @@ def _limite_ok(ip: str) -> bool:
 
 @app.get("/api/chat/config")
 def chat_config():
-    return {"modelos": MODELOS, "habilitado": bool(OPENROUTER_KEY)}
+    agentes = json.loads((STATIC / "agentes" / "agentes.json").read_text(encoding="utf-8"))
+    return {"modelos": MODELOS, "habilitado": bool(OPENROUTER_KEY), "agentes": agentes}
 
 
 @app.post("/api/chat")
@@ -181,13 +235,14 @@ async def chat(request: Request):
     corpo = await request.json()
     modelo = corpo.get("modelo") if corpo.get("modelo") in MODELOS else MODELOS[0]
     nome = (corpo.get("nome") or "").strip()[:60] or "Participante"
-    instrucoes = (corpo.get("instrucoes") or "").strip()[:4000]
+    instrucoes = (corpo.get("instrucoes") or "").strip()[:8000]
     historico = [m for m in corpo.get("mensagens", [])[-20:]
                  if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
 
-    # Prompt mínimo de propósito: sem instruções do aluno, o agente só sabe a data,
-    # quem está falando e que tem ferramentas. É a "agência sem prompt específico".
-    sistema = f"Hoje é {date.today().isoformat()}. Você está conversando com {nome}; use esse nome no campo autor das ferramentas de escrita."
+    # Prompt mínimo de propósito: sem instruções, o agente só sabe a data, quem fala
+    # e que tem ferramentas. É a "agência sem prompt específico".
+    sistema = (f"Hoje é {db.hoje().isoformat()}. Você está conversando com {nome}; "
+               "use esse nome no campo autor das ferramentas de escrita.")
     if instrucoes:
         sistema += "\n\nInstruções definidas pelo usuário:\n" + instrucoes
 
@@ -198,13 +253,13 @@ async def chat(request: Request):
 
     mensagens = [{"role": "system", "content": sistema}, *historico]
     passos = []
-    token_origem = origem.set("Chat do lab")
+    tok = p.origem.set("Chat do lab")
     try:
-        async with httpx.AsyncClient(timeout=90) as cliente:
-            for _ in range(8):
+        async with httpx.AsyncClient(timeout=120) as cliente:
+            for _ in range(24):
                 r = await cliente.post(
                     OPENROUTER_URL,
-                    headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "X-Title": "Colliers Lab"},
+                    headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "X-Title": "Colliers Hub"},
                     json={"model": modelo, "messages": mensagens, "tools": ferramentas, "temperature": 0.2},
                 )
                 if r.status_code != 200:
@@ -220,16 +275,21 @@ async def chat(request: Request):
                         args = json.loads(ch["function"].get("arguments") or "{}")
                     except json.JSONDecodeError:
                         args = {}
-                    resultado = await mcp.call_tool(nome_f, args)
-                    texto = _texto_resultado(resultado)
-                    passos.append({"ferramenta": nome_f, "tipo": tipo_por_nome.get(nome_f, "escrita"),
-                                   "argumentos": args, "resultado": texto[:1500]})
-                    mensagens.append({"role": "tool", "tool_call_id": ch["id"], "content": texto[:12000]})
-        return {"resposta": "Parei depois de 8 rodadas de ferramentas. Tente um pedido mais específico.", "passos": passos, "modelo": modelo}
+                    try:
+                        resultado = await mcp.call_tool(nome_f, args)
+                        texto = _texto_resultado(resultado)
+                    except Exception as e:  # argumentos inválidos para o esquema da ferramenta
+                        texto = json.dumps({"erro": f"Chamada inválida: {e}"}, ensure_ascii=False)
+                    tipo = tipo_por_nome.get(nome_f, "escrita")
+                    if '"pendente_aprovacao"' in texto:
+                        tipo = "pendente"
+                    passos.append({"ferramenta": nome_f, "tipo": tipo, "argumentos": args, "resultado": texto[:2000]})
+                    mensagens.append({"role": "tool", "tool_call_id": ch["id"], "content": texto[:16000]})
+        return {"resposta": "Parei depois de 24 rodadas de ferramentas. Tente um pedido mais específico.", "passos": passos, "modelo": modelo}
     except httpx.HTTPError as e:
         return JSONResponse({"erro": f"Falha de conexão com o provedor do modelo: {e}"}, 502)
     finally:
-        origem.reset(token_origem)
+        p.origem.reset(tok)
 
 
 def _texto_resultado(resultado) -> str:
@@ -237,7 +297,7 @@ def _texto_resultado(resultado) -> str:
     if estruturado:
         return json.dumps(estruturado, ensure_ascii=False)
     partes = [getattr(c, "text", "") for c in getattr(resultado, "content", []) or []]
-    return "\n".join(p for p in partes if p) or "{}"
+    return "\n".join(x for x in partes if x) or "{}"
 
 
 # O MCP fica por último, para não capturar as rotas acima.

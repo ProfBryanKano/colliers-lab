@@ -5,69 +5,77 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Colliers Lab · Chat do lab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Platypi:wght@600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/estilo.css">
 <style>
-  .chat-grade { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding: 24px 32px; align-items: start; }
-  @media (max-width: 900px) { .chat-grade { grid-template-columns: 1fr; padding: 16px; } }
-  .config { background: var(--papel); border: 1px solid var(--linha); border-radius: 4px; padding: 20px; display: grid; gap: 14px; position: sticky; top: 16px; }
-  .config label { font-weight: 600; font-size: 14px; display: grid; gap: 6px; }
+  .chat-grade { display: grid; grid-template-columns: 360px 1fr; gap: 24px; padding: 24px 32px; align-items: start; }
+  .chat-grade > * { min-width: 0; }
+  @media (max-width: 960px) { .chat-grade { grid-template-columns: 1fr; padding: 16px; } .config { position: static !important; } }
+  .config { padding: 20px; display: grid; gap: 14px; position: sticky; top: 16px; }
+  .config label { font-weight: 600; font-size: 14px; display: grid; gap: 6px; color: var(--azul-profundo); }
   .config input, .config select, .config textarea, .entrada textarea {
-    font: 15px/1.45 var(--texto); color: var(--roxo); border: 1px solid var(--linha); border-radius: 4px; padding: 9px 10px; background: #fff; width: 100%;
+    font: 14px/1.45 var(--titulo); color: var(--texto); border: 1px solid var(--cinza-azul); border-radius: var(--raio); padding: 9px 10px; background: #fff; width: 100%;
   }
-  .config textarea { min-height: 220px; resize: vertical; }
-  .config .dica { font-size: 13px; color: var(--suave); margin: -6px 0 0; }
-  .conversa { background: var(--papel); border: 1px solid var(--linha); border-radius: 4px; display: flex; flex-direction: column; min-height: 75vh; }
-  .mensagens { flex: 1; padding: 20px 24px; display: grid; gap: 16px; align-content: start; overflow-y: auto; max-height: 68vh; }
-  .msg { max-width: 72ch; }
-  .msg.user { justify-self: end; background: var(--roxo); color: #fff; padding: 10px 14px; border-radius: 4px; }
-  .msg.assistant { background: var(--nevoa); padding: 12px 16px; border-radius: 4px; white-space: pre-wrap; }
-  .msg.erro { background: #fff4f4; border-left: 4px solid #b3261e; padding: 10px 14px; }
-  .passos { border-left: 3px solid var(--linha); padding-left: 12px; display: grid; gap: 6px; }
-  .passos summary { font-weight: 600; font-size: 14px; }
-  .passo { font-size: 14px; }
-  .passo pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid var(--nevoa); padding: 8px; margin: 4px 0 0; max-height: 220px; overflow: auto; font-size: 12px; }
+  .config textarea { min-height: 280px; resize: vertical; font-size: 13px; }
+  .config .dica { font-size: 13px; color: var(--cinza-texto); margin: -6px 0 0; }
+  .config .botoes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .config .botoes button { padding: 7px 12px; font-size: 13px; }
+  .conversa { display: flex; flex-direction: column; min-height: 76vh; overflow: hidden; }
+  .mensagens { flex: 1; padding: 20px 24px; display: grid; gap: 14px; align-content: start; overflow-y: auto; max-height: 64vh; }
+  .msg { max-width: 76ch; }
+  .msg.user { justify-self: end; background: var(--azul-profundo); color: #fff; padding: 10px 14px; border-radius: var(--raio) var(--raio) 2px var(--raio); }
+  .msg.assistant { background: var(--azul-palido); padding: 12px 16px; border-radius: var(--raio) var(--raio) var(--raio) 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.erro { background: #fde0e5; color: #7a0017; padding: 10px 14px; border-radius: var(--raio); }
+  .msg.pensando { color: var(--cinza-texto); font-style: italic; }
+  .passos { font-size: 14px; }
+  .passos summary { font-size: 13px; }
+  .passo { margin-top: 8px; padding-left: 12px; border-left: 3px solid var(--cinza-azul); }
+  .passo pre { white-space: pre-wrap; word-break: break-word; background: #fff; box-shadow: 0 0 0 1px var(--cinza-azul); border-radius: 6px; padding: 8px; margin: 4px 0 0; max-height: 220px; overflow: auto; font-size: 12px; }
   .sugestoes { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 12px; }
-  .sugestoes button { background: var(--nevoa); color: var(--roxo); font-weight: 600; font-size: 14px; }
-  .entrada { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--linha); }
+  .sugestoes button { background: var(--azul-palido); color: var(--azul-profundo); font-weight: 600; font-size: 13px; text-align: left; }
+  .sugestoes button:hover { background: var(--cinza-azul); }
+  .entrada { display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--cinza-azul); }
   .entrada textarea { min-height: 48px; resize: vertical; }
-  .pensando { color: var(--suave); font-style: italic; }
 </style>
 </head>
 <body>
 <header class="topo">
   <div class="marca">
-    <h1>Chat do lab</h1>
-    <p>Um agente com as mesmas ferramentas MCP do painel. Todos os dados são fictícios.</p>
+    <span class="nome">Colliers</span><span class="sep" aria-hidden="true"></span>
+    <span class="produto">Chat do lab<small>Um agente ligado ao Colliers Hub pelas mesmas ferramentas MCP. Dados fictícios.</small></span>
   </div>
-  <div class="conexao"><a class="botao-claro" href="/" target="_blank">Abrir o painel ao vivo</a></div>
+  <div class="conexao">
+    <a class="botao no-escuro" href="/" target="_blank">Abrir o Hub</a>
+  </div>
 </header>
+<div class="faixa" aria-hidden="true"></div>
 
 <main class="chat-grade">
-  <aside class="config">
+  <aside class="config cartao">
     <label>Nome do grupo
       <input id="nome" placeholder="Ex.: Grupo 3" maxlength="60">
     </label>
+    <p class="dica">Aparece como autor no feed, nas aprovações e na auditoria.</p>
     <label>Modelo
       <select id="modelo"></select>
     </label>
-    <label>Instruções do agente (opcional)
-      <textarea id="instrucoes" placeholder="Deixe em branco para testar a agência sem prompt específico. Depois, cole aqui as instruções da Parte 1 e compare."></textarea>
+    <label>Modelo de agente
+      <select id="agente"><option value="">Nenhum (agência sem instruções)</option></select>
     </label>
+    <label for="instrucoes">Instruções do agente</label>
+    <textarea id="instrucoes" placeholder="Em branco, o agente só tem as ferramentas. Escolha um modelo acima ou escreva o seu: papel, objetivo, regras, ferramentas, saída e limites."></textarea>
+    <div class="botoes">
+      <button id="limparInstr" class="secundario" type="button">Apagar as instruções</button>
+    </div>
     <p class="dica">As instruções valem a partir da próxima mensagem.</p>
-    <button id="limpar" class="secundario" type="button">Começar nova conversa</button>
+    <button id="limpar" type="button">Começar nova conversa</button>
   </aside>
 
-  <section class="conversa" aria-label="Conversa">
+  <section class="conversa cartao" aria-label="Conversa">
     <div id="mensagens" class="mensagens" aria-live="polite">
-      <p class="intro">Peça algo à operação. A cada resposta, abra “Passos do agente” para ver quais ferramentas ele chamou e o que cada uma devolveu.</p>
+      <p class="intro" style="color:var(--cinza-texto)">Peça qualquer coisa à plataforma. A cada resposta, abra “Passos do agente” para ver as ferramentas chamadas e o que cada uma devolveu. O que for sensível aparece na fila de Aprovações do Hub.</p>
     </div>
-    <div class="sugestoes" id="sugestoes">
-      <button type="button">Quais contratos vencem nos próximos 150 dias?</button>
-      <button type="button">Leia o contrato C-101 e crie os alertas de renovação e reajuste.</button>
-      <button type="button">Rascunhe a carta de cobrança para o inquilino mais atrasado.</button>
-      <button type="button">Quais oportunidades estão sem responsável? Encaminhe para o time certo.</button>
-    </div>
+    <div class="sugestoes" id="sugestoes"></div>
     <form class="entrada" id="form">
       <textarea id="texto" placeholder="Escreva um pedido…" aria-label="Mensagem" required></textarea>
       <button type="submit" id="enviar">Enviar</button>
@@ -80,15 +88,38 @@ const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let historico = [];
 
+const guardar = (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} };
+const ler = (k) => { try { return sessionStorage.getItem(k) || ""; } catch (_) { return ""; } };
 ["nome", "instrucoes"].forEach((id) => {
-  $("#" + id).value = sessionStorage.getItem(id) || "";
-  $("#" + id).addEventListener("input", (e) => sessionStorage.setItem(id, e.target.value));
+  $("#" + id).value = ler(id);
+  $("#" + id).addEventListener("input", (e) => guardar(id, e.target.value));
 });
+
+let AGENTES = [];
+const GERAIS = ["O que esta plataforma tem? Quais módulos e o que eu posso fazer em cada um?", "Quais cobranças estão com mais de 60 dias de atraso?", "Registre uma reunião de hoje com a Nexo Farma sobre a renovação."];
+function sugestoes() {
+  const a = AGENTES.find((x) => x.id === $("#agente").value);
+  const lista = a ? [a.exemplo, ...GERAIS.slice(0, 1)] : [...GERAIS, ...AGENTES.slice(0, 2).map((x) => x.exemplo)];
+  $("#sugestoes").innerHTML = lista.map((t) => `<button type="button">${esc(t)}</button>`).join("");
+}
 
 fetch("/api/chat/config").then((r) => r.json()).then((c) => {
   $("#modelo").innerHTML = c.modelos.map((m) => `<option>${esc(m)}</option>`).join("");
+  const salvo = ler("modelo"); if (salvo && c.modelos.includes(salvo)) $("#modelo").value = salvo;
+  AGENTES = c.agentes || [];
+  $("#agente").innerHTML += AGENTES.map((a) => `<option value="${esc(a.id)}">${esc(a.nome)} (dor ${esc(a.dor)})</option>`).join("");
+  $("#agente").value = ler("agente");
+  sugestoes();
   if (!c.habilitado) adicionar("erro", "O chat está desligado: o servidor ainda não tem a chave OPENROUTER_API_KEY.");
 });
+$("#agente").addEventListener("change", async (e) => {
+  guardar("agente", e.target.value);
+  const a = AGENTES.find((x) => x.id === e.target.value);
+  const t = a ? await (await fetch("/static/agentes/" + a.arquivo)).text() : "";
+  $("#instrucoes").value = t; guardar("instrucoes", t);
+  sugestoes();
+});
+$("#modelo").addEventListener("change", (e) => guardar("modelo", e.target.value));
 
 function adicionar(papel, html) {
   const div = document.createElement("div");
@@ -112,9 +143,9 @@ async function enviar(texto) {
     espera.remove();
     if (j.erro) { adicionar("erro", esc(j.erro)); historico.pop(); return; }
     if (j.passos.length) {
-      const itens = j.passos.map((p) => `<div class="passo"><span class="tag ${p.tipo}">${p.tipo}</span> <b>${esc(p.ferramenta)}</b>
+      const itens = j.passos.map((p) => `<div class="passo"><span class="tag ${p.tipo}">${p.tipo === "pendente" ? "aguarda aprovação" : p.tipo}</span> <b>${esc(p.ferramenta)}</b>
         <pre>${esc(JSON.stringify(p.argumentos, null, 1))}</pre><details><summary>Resultado</summary><pre>${esc(p.resultado)}</pre></details></div>`).join("");
-      adicionar("passos", `<details><summary>Passos do agente (${j.passos.length})</summary>${itens}</details>`);
+      adicionar("passos", `<details><summary>Passos do agente (${j.passos.length} chamada${j.passos.length > 1 ? "s" : ""} de ferramenta)</summary>${itens}</details>`);
     }
     adicionar("assistant", esc(j.resposta));
     historico.push({role: "assistant", content: j.resposta});
@@ -127,8 +158,9 @@ async function enviar(texto) {
 
 $("#form").addEventListener("submit", (e) => { e.preventDefault(); const t = $("#texto").value.trim(); if (!t) return; $("#texto").value = ""; enviar(t); });
 $("#texto").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#form").requestSubmit(); } });
-$("#sugestoes").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") enviar(e.target.textContent); });
+$("#sugestoes").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) enviar(b.textContent); });
 $("#limpar").addEventListener("click", () => { historico = []; $("#mensagens").innerHTML = ""; });
+$("#limparInstr").addEventListener("click", () => { $("#instrucoes").value = ""; guardar("instrucoes", ""); $("#agente").value = ""; guardar("agente", ""); sugestoes(); });
 </script>
 </body>
 </html>
