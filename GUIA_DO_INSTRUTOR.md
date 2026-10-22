@@ -4,7 +4,14 @@
 
 O Hub faz o papel do "sistema da Colliers". Cada caso de uso da turma vira um **agente**: instruções (prompt fixo) mais as mesmas 9 ferramentas MCP. Trocar de caso é trocar as instruções, não o servidor. O que é sensível o servidor segura na fila de aprovação, e você decide no painel com o token.
 
-## Os seis agentes prontos (chat do lab, campo Agente)
+## Material de apoio
+
+- **Catálogo de casos** (`casos/CATALOGO_DE_CASOS.md`): os dez casos completos, para os grupos escolherem e montarem o agente na ferramenta que usam (Gem ou skill, GPT ou Workspace Agent, Projeto do Claude, Copilot Studio).
+- **Notebook** (`notebooks/agentes_de_processo.ipynb`): no Colab, use Arquivo › Abrir notebook › GitHub e cole o endereço do repositório, ou envie o arquivo. Guarde `OPENROUTER_API_KEY` em Secrets e troque `HUB_URL` na célula 0. As células 1 a 8 seguem o slide "O notebook em 8 células"; as células 9 a 12 mostram agentes de processo trabalhando no Hub. Deixe o Hub projetado em Chamadas MCP e em Aprovações enquanto roda.
+
+## Os agentes prontos (chat do lab, campo Agente)
+
+Além dos seis abaixo, o chat traz mais quatro do catálogo: pós-reunião no CRM, despacho de chamados, briefing de conta e auditor de cadastro.
 
 Os textos estão em `static/agentes/`, no formato do slide "Modelo de instruções" (papel, objetivo, regras, ferramentas, saída e limites). Servem para colar no GPT, Gem, Projeto ou agente do Copilot também.
 

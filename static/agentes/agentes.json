@@ -1,8 +1,72 @@
 [
-  {"id": "datas-criticas", "nome": "Datas críticas de contratos", "arquivo": "datas-criticas.txt", "dor": "04", "exemplo": "Quais datas críticas a carteira da Vértice tem nos próximos 12 meses? Cadastre os alertas que faltam."},
-  {"id": "triagem", "nome": "Triagem da caixa de entrada", "arquivo": "triagem.txt", "dor": "11", "exemplo": "Faça a triagem das demandas novas da caixa de entrada."},
-  {"id": "cobranca", "nome": "Régua de cobrança", "arquivo": "cobranca.txt", "dor": "08", "exemplo": "Aplique a régua de cobrança aos lojistas do Shopping Vila Nova."},
-  {"id": "originador", "nome": "Originador comercial", "arquivo": "originador.txt", "dor": "03", "exemplo": "Quais oportunidades estão sem responsável? Encaminhe cada uma para o time certo."},
-  {"id": "coordenador", "nome": "Coordenador do dia", "arquivo": "coordenador.txt", "dor": "07 e 12", "exemplo": "Monte o meu plano de hoje: o que é urgente na caixa de entrada, nos chamados e na agenda?"},
-  {"id": "tutor", "nome": "Tutor da base de conhecimento", "arquivo": "tutor.txt", "dor": "01", "exemplo": "Posso dar 30% de desconto para um lojista atrasado?"}
+ {
+  "id": "datas-criticas",
+  "nome": "Datas críticas de contratos",
+  "arquivo": "datas-criticas.txt",
+  "dor": "04",
+  "exemplo": "Quais datas críticas a carteira da Vértice tem nos próximos 12 meses? Cadastre os alertas que faltam."
+ },
+ {
+  "id": "triagem",
+  "nome": "Triagem da caixa de entrada",
+  "arquivo": "triagem.txt",
+  "dor": "11",
+  "exemplo": "Faça a triagem das demandas novas da caixa de entrada."
+ },
+ {
+  "id": "cobranca",
+  "nome": "Régua de cobrança",
+  "arquivo": "cobranca.txt",
+  "dor": "08",
+  "exemplo": "Aplique a régua de cobrança aos lojistas do Shopping Vila Nova."
+ },
+ {
+  "id": "originador",
+  "nome": "Originador comercial",
+  "arquivo": "originador.txt",
+  "dor": "03",
+  "exemplo": "Quais oportunidades estão sem responsável? Encaminhe cada uma para o time certo."
+ },
+ {
+  "id": "coordenador",
+  "nome": "Coordenador do dia",
+  "arquivo": "coordenador.txt",
+  "dor": "07 e 12",
+  "exemplo": "Monte o meu plano de hoje: o que é urgente na caixa de entrada, nos chamados e na agenda?"
+ },
+ {
+  "id": "tutor",
+  "nome": "Tutor da base de conhecimento",
+  "arquivo": "tutor.txt",
+  "dor": "01",
+  "exemplo": "Posso dar 30% de desconto para um lojista atrasado?"
+ },
+ {
+  "id": "reuniao-crm",
+  "nome": "Pós-reunião no CRM",
+  "arquivo": "reuniao-crm.txt",
+  "dor": "03",
+  "exemplo": "Reunião hoje com o Rafael da Nexo Farma: confirmou que quer reduzir para 450 m² no mesmo prédio, pediu a contraproposta da Aurora até sexta (Ana fica com isso) e comentou que a diretoria aprovou um escritório de 1.500 m² na Faria Lima para o comercial. Registre tudo."
+ },
+ {
+  "id": "despacho-chamados",
+  "nome": "Despacho de chamados",
+  "arquivo": "despacho-chamados.txt",
+  "dor": "Gestão Predial",
+  "exemplo": "Despache os chamados abertos dentro do SLA."
+ },
+ {
+  "id": "briefing-conta",
+  "nome": "Briefing de conta",
+  "arquivo": "briefing-conta.txt",
+  "dor": "03 e 07",
+  "exemplo": "Prepare o briefing da Vértice Tecnologia para a minha reunião de amanhã com a Marina."
+ },
+ {
+  "id": "higiene-cadastro",
+  "nome": "Auditor de cadastro",
+  "arquivo": "higiene-cadastro.txt",
+  "dor": "04",
+  "exemplo": "Audite o cadastro dos contratos contra os aditivos e corrija o que estiver divergente."
+ }
 ]

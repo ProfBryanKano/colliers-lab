@@ -7,8 +7,16 @@ Todos os dados são fictícios.
 | Endereço | O que é |
 | --- | --- |
 | `/` | O Hub: módulos, registro completo, atividade ao vivo, chamadas MCP (pedido e resposta de cada uma), aprovações, políticas e auditoria |
-| `/chat` | Chat do lab, com as mesmas ferramentas e seis agentes prontos |
+| `/chat` | Chat do lab, com as mesmas ferramentas e dez agentes prontos |
 | `/mcp` | Endpoint MCP (Streamable HTTP), sem autenticação |
+
+## Material da aula
+
+| Arquivo | O que é |
+| --- | --- |
+| [casos/CATALOGO_DE_CASOS.md](casos/CATALOGO_DE_CASOS.md) | Dez casos de uso com dor, especificação do agente, instruções prontas, chamadas MCP esperadas, testes e como montar em Claude, ChatGPT, Gemini e Copilot |
+| [notebooks/agentes_de_processo.ipynb](notebooks/agentes_de_processo.ipynb) | O agente em código (as oito células do bloco 6) e agentes de processo trabalhando no Hub, com aprovação humana. Abre no Colab |
+| `static/agentes/` | As instruções dos dez agentes, também disponíveis no chat do lab |
 
 ## Módulos (15)
 
